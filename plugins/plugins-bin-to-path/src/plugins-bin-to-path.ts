@@ -4,7 +4,7 @@ import type { BashResult } from "@oh-my-pi/pi-coding-agent/exec/bash-executor";
 import { getShellConfig } from "@oh-my-pi/pi-utils/procmgr";
 import { delimiter, join } from "node:path";
 import { getPluginsDir } from "@oh-my-pi/pi-utils/dirs";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 
 /** One entry in a Claude Code v2 `installed_plugins.json` plugin list. */
 interface InstalledPluginEntry {
@@ -50,6 +50,39 @@ function prependToPath(binDirs: string[], currentPath: string): string {
 	const toAdd = binDirs.filter((dir) => !existing.includes(dir));
 	if (toAdd.length === 0) return currentPath;
 	return [...toAdd, ...existing].join(delimiter);
+}
+
+/** List the executable file names in a bin dir, ignoring an unreadable dir. */
+function readBinNames(binDir: string): string[] {
+	try {
+		return readdirSync(binDir);
+	} catch {
+		return [];
+	}
+}
+
+/**
+ * Whether `command` references any of `binNames` as a bare whole-word token, so
+ * we only touch calls that actually need a bundled executable on PATH.
+ *
+ * Splits on whitespace and shell metacharacters but NOT on `/`, so a path-form
+ * invocation (`/opt/x/bg-gradle`) stays a single token that does not match the
+ * bare name (paths resolve without our PATH help), while a bare `bg-gradle`
+ * matches whether it is the command or an argument — the latter is required for
+ * lookups like `command -v bg-gradle` / `which bg-gradle`. A substring
+ * (`bg-gradlefoo`) never matches.
+ *
+ * This keeps the injected PATH off the vast majority of tool calls, which omp
+ * would otherwise render with the long prepended `env`. The check is conservative
+ * by design: a rare miss just runs the command without the bundled bin dir (the
+ * pre-existing behavior), while a false match only adds a harmless PATH entry.
+ */
+function commandUsesBinary(command: string, binNames: ReadonlySet<string>): boolean {
+	if (binNames.size === 0) return false;
+	for (const token of command.split(/[\s|&;:()<>`$"'{}=]+/)) {
+		if (token.length > 0 && binNames.has(token)) return true;
+	}
+	return false;
 }
 
 /**
@@ -159,6 +192,17 @@ export default function (pi: ExtensionAPI) {
 		return cachedBinDirs;
 	};
 
+	// Names of the executables living in the bin dirs, resolved once. Used to
+	// decide whether a command actually needs a bundled binary before we touch
+	// its PATH — so ordinary commands render with a clean, unmodified env.
+	let cachedBinNames: ReadonlySet<string> | undefined;
+	const binNamesOnce = (): ReadonlySet<string> => {
+		if (cachedBinNames === undefined) {
+			cachedBinNames = new Set(binDirsOnce().flatMap(readBinNames));
+		}
+		return cachedBinNames;
+	};
+
 	// Mirror the bin dirs into this process's own PATH. This does NOT reach the
 	// bash tool (see below), but covers surfaces that read `process.env` live in
 	// this process — the `eval` JS/Python kernels and any child an extension spawns.
@@ -172,19 +216,20 @@ export default function (pi: ExtensionAPI) {
 		}
 	});
 
-	// The bash tool does NOT read `process.env` per command. It builds each
-	// command's environment from `settings.getShellConfig().env`, a snapshot of
-	// `process.env` taken at settings init — BEFORE extensions load — layered
-	// with non-interactive hardening (see omp `bash-tool-runtime.md`). A later
-	// `process.env` mutation from an extension can never reach it. The one
-	// supported lever is revising the tool call's own `input.env`, which the
-	// executor layers on top with precedence. So inject PATH here, per call,
-	// seeded from the launch PATH (NOT the mutated `process.env`, which would
-	// make the dedup below think the dirs are already present and skip the fix).
+	// The bash tool does NOT read `process.env` per command (a plugin loads after
+	// omp captures the shell env), so a `session_start` PATH mutation never reaches
+	// it. The supported lever is revising the tool call's own `input.env`, which the
+	// executor layers on top with precedence. Seed from the launch PATH (NOT the
+	// mutated `process.env`, whose dedup would think the dirs are already present).
+	//
+	// Only inject when the command actually invokes a bundled executable —
+	// otherwise omp would render every unrelated bash call with the long prepended
+	// PATH in its `env`. Untouched calls return `undefined` (no revision).
 	pi.on("tool_call", async (event) => {
 		if (!isToolCallEventType("bash", event)) return; // narrows to BashToolCallEvent
 		const binDirs = binDirsOnce();
 		if (binDirs.length === 0) return;
+		if (!commandUsesBinary(event.input.command, binNamesOnce())) return;
 
 		const priorEnv = event.input.env;
 		const basePath = priorEnv?.["PATH"] ?? launchPath;
@@ -196,13 +241,15 @@ export default function (pi: ExtensionAPI) {
 
 	// The `!` bang surface (`AgentSession.executeBash`) never fires `tool_call`,
 	// so the injection above cannot reach it, and it reuses a persistent shell
-	// whose env was captured before this extension loaded — so the bundled
+	// whose env was captured before this plugin loaded — so the bundled
 	// executables are absent from its PATH. Its one extension hook is
-	// `user_bash`: returning a `result` fully replaces execution. Run the command
-	// ourselves through the same login shell with the bin dirs prepended.
+	// `user_bash`: returning a `result` fully replaces execution. Only take over
+	// when the command actually invokes a bundled executable — otherwise let omp
+	// run it natively (persistent shell, cwd state, output minimizer, snapshot).
 	pi.on("user_bash", async (event) => {
 		const binDirs = binDirsOnce();
 		if (binDirs.length === 0) return;
+		if (!commandUsesBinary(event.command, binNamesOnce())) return;
 		try {
 			const result = await runBang(event.command, event.cwd, binDirs);
 			return { result };
