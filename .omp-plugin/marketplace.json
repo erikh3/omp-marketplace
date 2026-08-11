@@ -1,0 +1,21 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "erikh3-omp-marketplace",
+  "owner": {
+    "name": "Erik Horváth"
+  },
+  "metadata": {
+    "description": "omp plugins by Erik Horváth",
+    "version": "1.0.0",
+    "pluginRoot": "plugins"
+  },
+  "plugins": [
+    {
+      "name": "plugins-bin-to-path",
+      "description": "Puts each enabled Claude Code plugin's bin/ directory on the Bash tool PATH, so bundled executables run by bare name under omp.",
+      "source": "./plugins-bin-to-path",
+      "category": "development",
+      "homepage": "https://github.com/erikh3/omp-marketplace/tree/main/plugins/plugins-bin-to-path"
+    }
+  ]
+}
