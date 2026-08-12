@@ -20,20 +20,6 @@ import type { Ctx } from "./state.js";
 import type { Operator } from "./state.js";
 
 // ---------------------------------------------------------------------------
-// Shared primitives
-// ---------------------------------------------------------------------------
-
-/** Absolute offset of the start of a logical line. */
-export function lineStartAbs(lines: readonly string[], lineIdx: number): number {
-	return lineColToAbs(lines, lineIdx, 0);
-}
-
-/** Absolute offset of the end of a logical line (last char, not past). */
-export function lineEndAbs(lines: readonly string[], lineIdx: number): number {
-	return lineColToAbs(lines, lineIdx, (lines[lineIdx] ?? "").length);
-}
-
-// ---------------------------------------------------------------------------
 // Charwise operators
 // ---------------------------------------------------------------------------
 

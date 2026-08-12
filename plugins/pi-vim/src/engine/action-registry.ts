@@ -17,17 +17,7 @@ import {
 import { lineColToAbs, absToLineCol } from "../host/keystroke-bridge.js";
 import { applyLinewiseOp, deleteCharwise } from "./operator-registry.js";
 import type { Ctx } from "./state.js";
-
-// ---------------------------------------------------------------------------
-// Grapheme helper
-// ---------------------------------------------------------------------------
-
-/** UTF-16 length of the grapheme cluster starting at absolute offset `abs`. */
-function graphemeLenAt(text: string, abs: number): number {
-	const WINDOW = 16;
-	const seg = getLineGraphemes(text.slice(abs, abs + WINDOW))[0];
-	return seg ? seg.end - seg.start : 1;
-}
+import { graphemeLenAt } from "./motion-registry.js";
 
 
 // ---------------------------------------------------------------------------

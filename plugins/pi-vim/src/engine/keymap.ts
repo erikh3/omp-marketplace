@@ -16,7 +16,7 @@ import type { Operator } from "./state.js";
 
 /** A charwise motion that optionally awaits a second key (char-find, `r`). */
 export type MotionCommand =
-	| { type: "motion"; name: string }
+	| { type: "motion"; name: string; inclusiveOverride?: boolean; changeWord?: boolean }
 	| { type: "motion-await-char"; name: "f" | "F" | "t" | "T" }
 	| { type: "motion-G" }     // G or {count}G — needs "has count?" flag
 	| { type: "motion-gg" };   // gg — pending-g state
@@ -145,8 +145,8 @@ export const operatorKeymap: Readonly<Record<string, Command>> = {
 	k: { type: "motion", name: "k" },
 
 	// Charwise motions
-	w: { type: "motion", name: "w" },
-	W: { type: "motion", name: "W" },
+	w: { type: "motion", name: "w", changeWord: true },
+	W: { type: "motion", name: "W", changeWord: true },
 	b: { type: "motion", name: "b" },
 	B: { type: "motion", name: "B" },
 	e: { type: "motion", name: "e" },
@@ -154,7 +154,7 @@ export const operatorKeymap: Readonly<Record<string, Command>> = {
 	"0": { type: "motion", name: "0" },
 	"^": { type: "motion", name: "^" },
 	$: { type: "motion", name: "$" },
-	"%": { type: "motion", name: "%" },
+	"%": { type: "motion", name: "%", inclusiveOverride: true },
 	l: { type: "motion", name: "l-op" }, // special: clamped to text.length
 
 	// Line jumps (linewise under operator)

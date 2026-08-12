@@ -130,6 +130,62 @@ function buildCharwiseRange(
 	if (inclusive) hi += graphemeLenAt(ctx.host.getText(), hi);
 	return { lo, hi };
 }
+// ---------------------------------------------------------------------------
+// Motion function table & operator charwise helper
+// ---------------------------------------------------------------------------
+
+/** Motion function signature (motionPercent may return null; all others do not). */
+type MotionFn = (ctx: Ctx, count: number) => MotionResult | null;
+
+/**
+ * `l` under operator-pending — advance `count` graphemes but clamp at line end.
+ * Unlike standalone `l`, operator-l stops at the last character.
+ */
+function motionLOp(ctx: Ctx, count: number): MotionResult {
+	const { line, col } = ctx.host.getCursor();
+	const lines = ctx.host.getLines();
+	const text = lines[line] ?? "";
+	let end = col;
+	for (let i = 0; i < count && end < text.length; i++) {
+		end += graphemeLenAt(text, end);
+	}
+	return {
+		targetAbs: lineColToAbs(lines, line, end),
+		targetLine: line,
+		targetCol: end,
+		inclusive: false,
+		linewise: false,
+	};
+}
+
+/** Charwise motions indexed by keymap name. Index access may return undefined. */
+const motionFns: Partial<Record<string, MotionFn>> = {
+	h: motionH,
+	l: motionL,
+	j: motionJ,
+	k: motionK,
+	w: motionW,
+	W: motionBigW,
+	b: motionB,
+	B: motionBigB,
+	e: motionE,
+	E: motionBigE,
+	"0": motion0,
+	"^": motionCaret,
+	$: motionDollar,
+	"{": motionLBrace,
+	"}": motionRBrace,
+	"%": motionPercent,
+	"l-op": motionLOp,
+};
+
+/** Apply an operator to a charwise [lo, hi) range; reset input unless `c`. */
+function applyCharwiseMotion(ctx: Ctx, op: Operator, lo: number, hi: number): void {
+	if (hi <= lo) { resetInput(ctx.state); return; }
+	applyCharwiseOp(ctx, op, lo, hi);
+	if (op !== "c") resetInput(ctx.state);
+}
+
 
 
 // ---------------------------------------------------------------------------
@@ -220,7 +276,7 @@ export function evaluate(ctx: Ctx, data: string): void {
 			const hasCount = count !== "";
 			const n = takeCount(ctx.state);
 			const motion = motionGg(ctx, n, hasCount);
-			moveOrLinewise(ctx, motion);
+			ctx.host.moveCursor({ line: motion.targetLine, col: motion.targetCol });
 		}
 		ctx.state.input.count = "";
 		return;
@@ -294,16 +350,10 @@ function applyCharFind(
 	const { lo, hi } = buildCharwiseRange(ctx, result, inclusive);
 
 	if (ctx.state.input.operator !== null) {
-		applyCharwiseMotion(ctx.state.input.operator, lo, hi);
+		applyCharwiseMotion(ctx, ctx.state.input.operator, lo, hi);
 	} else {
 		ctx.host.moveCursor({ line: result.targetLine, col: result.targetCol });
 		resetInput(ctx.state);
-	}
-
-	function applyCharwiseMotion(op: Operator, lo: number, hi: number): void {
-		if (hi <= lo) { resetInput(ctx.state); return; }
-		applyCharwiseOp(ctx, op, lo, hi);
-		if (op !== "c") resetInput(ctx.state);
 	}
 }
 
@@ -355,7 +405,7 @@ function handleOperatorKey(ctx: Ctx, data: string): void {
 	const op = ctx.state.input.operator;
 	if (op === null) return;
 
-	// gg / G under operator → linewise between cursor and target line
+	// ── Pending gg: second 'g' completes the gg motion ──────────────────────
 	if (ctx.state.input.pendingG) {
 		ctx.state.input.pendingG = false;
 		if (data === "g") {
@@ -368,19 +418,8 @@ function handleOperatorKey(ctx: Ctx, data: string): void {
 		}
 		return;
 	}
-	if (data === "g") {
-		ctx.state.input.pendingG = true;
-		return;
-	}
-	if (data === "G") {
-		const hasCount = ctx.state.input.count !== "";
-		const n = takeCount(ctx.state);
-		const motion = motionG(ctx, n, hasCount);
-		applyLinewiseFromMotion(ctx, op, motion);
-		return;
-	}
 
-	// Doubled operators: dd / cc / yy → linewise on current line + count-1 below
+	// ── Doubled operators: dd / cc / yy → linewise on current line ──────────
 	if (
 		(op === "d" && data === "d") ||
 		(op === "c" && data === "c") ||
@@ -393,136 +432,59 @@ function handleOperatorKey(ctx: Ctx, data: string): void {
 		return;
 	}
 
-	// Text-object introducer (i / a)
-	if (data === "i" || data === "a") {
-		ctx.state.input.textObject = data;
+	// ── Keymap-driven dispatch ───────────────────────────────────────────────
+	const command = operatorKeymap[data];
+	if (command === undefined) {
+		resetInput(ctx.state);
 		return;
 	}
 
-	// Char-find as operator motion
-	if (data === "f" || data === "F" || data === "t" || data === "T") {
-		ctx.state.input.charPending = data;
-		return;
-	}
+	switch (command.type) {
+		case "textobject-intro":
+			ctx.state.input.textObject = command.kind;
+			return;
 
-	// Linewise j / k
-	if (data === "j" || data === "k") {
-		const count = takeCount(ctx.state);
-		const { line } = ctx.host.getCursor();
-		const other = data === "j" ? line + count : line - count;
-		applyLinewiseOp(
-			ctx,
-			op,
-			Math.min(line, other),
-			Math.max(line, other),
-		);
-		if (op !== "c") resetInput(ctx.state);
-		return;
-	}
+		case "motion-await-char":
+			ctx.state.input.charPending = command.name;
+			return;
 
-	// Charwise motions (reusing same target math as standalone)
-	const count = takeCount(ctx.state);
-	const lines = ctx.host.getLines();
-	const { line, col } = ctx.host.getCursor();
+		case "motion-gg":
+			ctx.state.input.pendingG = true;
+			return;
 
-	switch (data) {
-		case "w": {
-			// cw special form: on non-blank → ce (word end, inclusive)
-			if (op === "c") {
-				applyChangeWord(ctx, "word", count);
-			} else {
-				const m = motionW(ctx, count);
-				const { lo, hi } = buildCharwiseRange(ctx, m);
-				applyCharwiseMotion(op, lo, hi);
-			}
+		case "motion-G": {
+			const hasCount = ctx.state.input.count !== "";
+			const n = takeCount(ctx.state);
+			const motion = motionG(ctx, n, hasCount);
+			applyLinewiseFromMotion(ctx, op, motion);
 			return;
 		}
-		case "W": {
-			if (op === "c") {
-				applyChangeWord(ctx, "WORD", count);
-			} else {
-				const m = motionBigW(ctx, count);
-				const { lo, hi } = buildCharwiseRange(ctx, m);
-				applyCharwiseMotion(op, lo, hi);
-			}
-			return;
-		}
-		case "b": {
-			const m = motionB(ctx, count);
-			const { lo, hi } = buildCharwiseRange(ctx, m);
-			applyCharwiseMotion(op, lo, hi);
-			return;
-		}
-		case "B": {
-			const m = motionBigB(ctx, count);
-			const { lo, hi } = buildCharwiseRange(ctx, m);
-			applyCharwiseMotion(op, lo, hi);
-			return;
-		}
-		case "e": {
-			const m = motionE(ctx, count);
-			const { lo, hi } = buildCharwiseRange(ctx, m);
-			applyCharwiseMotion(op, lo, hi);
-			return;
-		}
-		case "E": {
-			const m = motionBigE(ctx, count);
-			const { lo, hi } = buildCharwiseRange(ctx, m);
-			applyCharwiseMotion(op, lo, hi);
-			return;
-		}
-		case "$": {
-			const m = motionDollar(ctx, count);
-			const { lo, hi } = buildCharwiseRange(ctx, m);
-			applyCharwiseMotion(op, lo, hi);
-			return;
-		}
-		case "0": {
-			const m = motion0(ctx, count);
-			const { lo, hi } = buildCharwiseRange(ctx, m);
-			applyCharwiseMotion(op, lo, hi);
-			return;
-		}
-		case "^": {
-			const m = motionCaret(ctx, count);
-			const { lo, hi } = buildCharwiseRange(ctx, m);
-			applyCharwiseMotion(op, lo, hi);
-			return;
-		}
-		case "%": {
-			const m = motionPercent(ctx, count);
-			if (m === null) {
-				resetInput(ctx.state);
+
+		case "motion": {
+			const count = takeCount(ctx.state);
+			const { name, inclusiveOverride, changeWord } = command;
+			// cw / cW special form: on non-blank, behave like ce / cE (word-end, inclusive)
+			if (changeWord && op === "c") {
+				applyChangeWord(ctx, name === "W" ? "WORD" : "word", count);
 				return;
 			}
-			// % under operator: inclusive (both directions)
-			const { lo, hi } = buildCharwiseRange(ctx, m, true);
-			applyCharwiseMotion(op, lo, hi);
-			return;
-		}
-		case "l": {
-			// l under operator: clamped to text.length (unlike standalone l)
-			const text = lines[line] ?? "";
-			let end = col;
-			for (let i = 0; i < count && end < text.length; i++) {
-				end += graphemeLenAt(text, end);
+			const fn = motionFns[name];
+			if (fn === undefined) { resetInput(ctx.state); return; }
+			const m = fn(ctx, count);
+			if (m === null) { resetInput(ctx.state); return; }
+			if (m.linewise) {
+				applyLinewiseFromMotion(ctx, op, m);
+				return;
 			}
-			const lo2 = lineColToAbs(lines, line, col);
-			const hi2 = lineColToAbs(lines, line, end);
-			applyCharwiseMotion(op, lo2, hi2);
+			const { lo, hi } = buildCharwiseRange(ctx, m, inclusiveOverride);
+			applyCharwiseMotion(ctx, op, lo, hi);
 			return;
 		}
+
 		default:
-			// Unknown motion: cancel the operator (vim behaviour).
+			// ActionCommand / OperatorCommand are not valid in operator-pending; cancel.
 			resetInput(ctx.state);
 			return;
-	}
-
-	// Local helper to avoid captured-variable shadowing issues
-	function applyCharwiseMotion(op: Operator, lo: number, hi: number): void {
-		if (hi <= lo) { resetInput(ctx.state); return; }
-		applyCharwiseOp(ctx, op, lo, hi);
-		if (op !== "c") resetInput(ctx.state);
 	}
 }
 
@@ -654,130 +616,23 @@ function applyVisualOperator(
 // ---------------------------------------------------------------------------
 
 function handleNormalKey(ctx: Ctx, data: string): void {
-	const parsed = parseKey(data);
-	const canonical = parsed !== undefined ? canonicalKeyId(parsed) : undefined;
+	const command = normalKeymap[data];
+	if (command === undefined) return; // swallow unmapped key
 
-	switch (data) {
-		// Mode entries
-		case "i": actionI(ctx); return;
-		case "a": actionA(ctx); return;
-		case "I": actionBigI(ctx); return;
-		case "A": actionBigA(ctx); return;
-		case "o": actionO(ctx); return;
-		case "O": actionBigO(ctx); return;
-
-		// Visual modes
-		case "v": actionV(ctx); return;
-		case "V": actionBigV(ctx); return;
-
-		// Motions (arrow-like)
-		case "h": {
-			const m = motionH(ctx, takeCount(ctx.state));
-			ctx.host.moveCursor({ line: m.targetLine, col: m.targetCol });
-			return;
-		}
-		case "l": {
-			const m = motionL(ctx, takeCount(ctx.state));
-			ctx.host.moveCursor({ line: m.targetLine, col: m.targetCol });
-			return;
-		}
-		case "j": {
-			const m = motionJ(ctx, takeCount(ctx.state));
-			ctx.host.moveCursor({ line: m.targetLine, col: m.targetCol });
-			return;
-		}
-		case "k": {
-			const m = motionK(ctx, takeCount(ctx.state));
-			ctx.host.moveCursor({ line: m.targetLine, col: m.targetCol });
-			return;
-		}
-
-		// Word motions
-		case "w": {
-			const m = motionW(ctx, takeCount(ctx.state));
-			ctx.host.moveCursor({ line: m.targetLine, col: m.targetCol });
-			return;
-		}
-		case "W": {
-			const m = motionBigW(ctx, takeCount(ctx.state));
-			ctx.host.moveCursor({ line: m.targetLine, col: m.targetCol });
-			return;
-		}
-		case "b": {
-			const m = motionB(ctx, takeCount(ctx.state));
-			ctx.host.moveCursor({ line: m.targetLine, col: m.targetCol });
-			return;
-		}
-		case "B": {
-			const m = motionBigB(ctx, takeCount(ctx.state));
-			ctx.host.moveCursor({ line: m.targetLine, col: m.targetCol });
-			return;
-		}
-		case "e": {
-			const m = motionE(ctx, takeCount(ctx.state));
-			ctx.host.moveCursor({ line: m.targetLine, col: m.targetCol });
-			return;
-		}
-		case "E": {
-			const m = motionBigE(ctx, takeCount(ctx.state));
-			ctx.host.moveCursor({ line: m.targetLine, col: m.targetCol });
-			return;
-		}
-
-		// Line motions
-		case "0": {
-			const m = motion0(ctx, 1);
-			ctx.host.moveCursor({ line: m.targetLine, col: m.targetCol });
-			return;
-		}
-		case "^": {
-			const m = motionCaret(ctx, 1);
-			ctx.host.moveCursor({ line: m.targetLine, col: m.targetCol });
-			return;
-		}
-		case "$": {
-			const m = motionDollar(ctx, 1);
-			ctx.host.moveCursor({ line: m.targetLine, col: m.targetCol });
-			return;
-		}
-
-		// Paragraph motions
-		case "{": {
-			const m = motionLBrace(ctx, takeCount(ctx.state));
-			ctx.host.moveCursor({ line: m.targetLine, col: m.targetCol });
-			return;
-		}
-		case "}": {
-			const m = motionRBrace(ctx, takeCount(ctx.state));
-			ctx.host.moveCursor({ line: m.targetLine, col: m.targetCol });
-			return;
-		}
-
-		// Matching pair
-		case "%": {
-			const m = motionPercent(ctx, 1);
-			if (m === null) { resetInput(ctx.state); return; }
-			ctx.host.moveCursor({ line: m.targetLine, col: m.targetCol });
-			return;
-		}
-
-		// Char-find
-		case "f":
-		case "F":
-		case "t":
-		case "T":
-			ctx.state.input.charPending = data;
+	switch (command.type) {
+		case "operator":
+			ctx.state.input.operator = command.name;
 			return;
 
-		// Char-find repeat
-		case ";": repeatCharFind(ctx, false); return;
-		case ",": repeatCharFind(ctx, true); return;
-
-		// Buffer jumps
-		case "g":
+		case "motion-gg":
 			ctx.state.input.pendingG = true;
 			return;
-		case "G": {
+
+		case "motion-await-char":
+			ctx.state.input.charPending = command.name;
+			return;
+
+		case "motion-G": {
 			const hasCount = ctx.state.input.count !== "";
 			const n = takeCount(ctx.state);
 			const m = motionG(ctx, n, hasCount);
@@ -786,33 +641,53 @@ function handleNormalKey(ctx: Ctx, data: string): void {
 			return;
 		}
 
-		// Edits
-		case "u":
-			ctx.host.undo(takeCount(ctx.state));
+		case "motion": {
+			const count = takeCount(ctx.state);
+			const fn = motionFns[command.name];
+			if (fn === undefined) return;
+			const m = fn(ctx, count);
+			if (m === null) { resetInput(ctx.state); return; }
+			ctx.host.moveCursor({ line: m.targetLine, col: m.targetCol });
 			return;
+		}
+
+		case "action":
+			dispatchNormalAction(ctx, command.name);
+			return;
+
+		case "textobject-intro":
+			// Not valid in normal mode; swallow.
+			return;
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Normal-key action dispatch
+// ---------------------------------------------------------------------------
+
+/** Dispatch a named normal-mode action. Called from handleNormalKey. */
+function dispatchNormalAction(ctx: Ctx, name: string): void {
+	switch (name) {
+		case "i": actionI(ctx); return;
+		case "a": actionA(ctx); return;
+		case "I": actionBigI(ctx); return;
+		case "A": actionBigA(ctx); return;
+		case "o": actionO(ctx); return;
+		case "O": actionBigO(ctx); return;
+		case "v": actionV(ctx); return;
+		case "V": actionBigV(ctx); return;
+		case ";": repeatCharFind(ctx, false); return;
+		case ",": repeatCharFind(ctx, true); return;
 		case "x": actionX(ctx, takeCount(ctx.state)); return;
-		case "r":
-			ctx.state.input.replacePending = true;
-			return;
+		case "s": actionS(ctx, takeCount(ctx.state)); return;
+		case "r": ctx.state.input.replacePending = true; return;
 		case "D": actionBigD(ctx); return;
 		case "C": actionBigC(ctx); return;
-		case "d": ctx.state.input.operator = "d"; return;
-		case "c": ctx.state.input.operator = "c"; return;
-		case "s": actionS(ctx, takeCount(ctx.state)); return;
-		case "y": ctx.state.input.operator = "y"; return;
 		case "Y": actionBigY(ctx, takeCount(ctx.state)); return;
 		case "p": actionPaste(ctx, takeCount(ctx.state), true); return;
 		case "P": actionPaste(ctx, takeCount(ctx.state), false); return;
-
-		// Ex
-		case ":":
-			ctx.state.exBuffer = ":";
-			ctx.host.signalEx(":");
-			return;
-
-		default:
-			// Swallow every unmapped key: NORMAL never leaks text.
-			return;
+		case "u": ctx.host.undo(takeCount(ctx.state)); return;
+		case ":": ctx.state.exBuffer = ":"; ctx.host.signalEx(":"); return;
 	}
 }
 
@@ -825,18 +700,4 @@ function repeatCharFind(ctx: Ctx, reverse: boolean): void {
 	if (last === null) return;
 	const motion = reverse ? reverseCharMotion(last.motion) : last.motion;
 	applyCharFind(ctx, motion, last.char, takeCount(ctx.state), true);
-}
-
-// ---------------------------------------------------------------------------
-// Standalone + visual linewise motion helper
-// ---------------------------------------------------------------------------
-
-/**
- * Apply a motion result in a standalone or visual context:
- * - If there is an operator pending (shouldn't happen here, but guard), apply it.
- * - If linewise: move cursor to (targetLine, targetCol) without operator.
- * - If charwise: move cursor to the target.
- */
-function moveOrLinewise(ctx: Ctx, motion: MotionResult): void {
-	ctx.host.moveCursor({ line: motion.targetLine, col: motion.targetCol });
 }
