@@ -82,8 +82,9 @@ Undo/redo is owned by pi-vim, not the base editor: the base `#applyUndo` pops
 without capturing the replaced state (so it cannot redo) and snapshots once per
 delete *call* (so a multi-key edit would undo one grapheme at a time). Instead
 the editor snapshots the whole buffer before each change and restores via
-`setText`, so one `u` / `Ctrl+r` moves one whole vim command — including
-multi-line `dd` / `dj` / `dG` and a full insert session — as a single step.
+`setText`. Granularity follows vim: a NORMAL command is one step (including
+multi-line `dd` / `dj` / `dG`), INSERT typing undoes character by character,
+and a paste undoes as a single unit.
 
 The vendored files under `src/vim/` are copied verbatim (MIT) and are not
 edited in place; refresh them by re-vendoring from upstream.

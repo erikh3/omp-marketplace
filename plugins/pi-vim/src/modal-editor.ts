@@ -368,25 +368,29 @@ export class ModalVimEditor extends CustomEditor {
 			// editor unchanged (typing, paste, history, autocomplete, submit).
 			if (this.#isEscape(data)) {
 				this.setMode("normal");
-				// Close the insert session opened when we entered INSERT, so the
-				// whole session (plus any preceding operator delete, e.g. `cw`) is
-				// one undo unit.
-				this.#commitChange();
 				// Vim rests the NORMAL cursor ON a character, not past the last
 				// one, so leaving INSERT steps left one grapheme (unless already
 				// at column 0). This keeps `x`, `$`, and backward finds aligned.
 				if (this.getCursor().col > 0) this.handleDraftEdit(SEQ.left);
 				return;
 			}
+			// One undo unit per INSERT keystroke: typing undoes character by
+			// character, and a paste (assembled into a single buffer mutation by
+			// the base editor) undoes as one unit. Keystrokes that change nothing
+			// (arrows, no-op history keys) leave the timeline untouched because
+			// #commitChange no-ops when the text is unchanged.
+			this.#beginChange();
 			super.handleInput(data);
+			this.#commitChange();
 			return;
 		}
-		// NORMAL command: snapshot the buffer, dispatch, then commit — unless the
-		// command opened an insert session (mode is now "insert"), in which case
-		// the commit is deferred to the Escape above so delete+insert coalesce.
+		// NORMAL command: snapshot the buffer, dispatch, then commit. Commands
+		// that only switch to INSERT (`i`, `a`) change no text, so the commit
+		// no-ops; commands that also edit (`o`, `cw`, `s`) commit that edit as
+		// its own unit before the per-keystroke insert units that follow.
 		this.#beginChange();
 		this.#handleNormal(data);
-		if (this.#mode === "normal") this.#commitChange();
+		this.#commitChange();
 	}
 
 	#isEscape(data: string): boolean {

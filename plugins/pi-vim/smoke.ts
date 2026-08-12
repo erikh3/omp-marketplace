@@ -493,7 +493,7 @@ function check(name: string, actual: unknown, expected: unknown): void {
 	check("new edit clears redo", ed.getText(), "bcdef");
 }
 
-// 37. An insert session is one undo unit (o + typed text + Esc).
+// 37. INSERT typing undoes character by character (not the whole session).
 {
 	const { ed } = newEditor();
 	type(ed, "top");
@@ -502,13 +502,28 @@ function check(name: string, actual: unknown, expected: unknown): void {
 	type(ed, "added");
 	ed.handleInput(ESC);
 	check("o added a line", ed.getText(), "top\nadded");
-	ed.handleInput("u"); // one undo reverts the whole open+insert
-	check("u reverts whole insert session", ed.getText(), "top");
-	ed.handleInput("\x12"); // redo restores it
-	check("ctrl+r restores insert session", ed.getText(), "top\nadded");
+	ed.handleInput("u"); // one undo drops one typed char
+	check("u drops one typed char", ed.getText(), "top\nadde");
+	ed.handleInput("u");
+	ed.handleInput("u"); // three chars gone total
+	check("each u drops one char", ed.getText(), "top\nad");
+	ed.handleInput("\x12"); // redo restores one char
+	check("ctrl+r restores one char", ed.getText(), "top\nadd");
 }
 
-// 38. multi-step undo/redo walks the timeline in order.
+// 38. A paste undoes as a single unit (one bracketed-paste mutation).
+{
+	const { ed } = newEditor();
+	ed.handleInput("\x1b[200~hello world\x1b[201~"); // paste in INSERT (default)
+	check("paste landed", ed.getText(), "hello world");
+	ed.handleInput(ESC);
+	ed.handleInput("u"); // one undo removes the whole paste
+	check("u removes whole paste", ed.getText(), "");
+	ed.handleInput("\x12"); // redo restores the whole paste
+	check("ctrl+r restores whole paste", ed.getText(), "hello world");
+}
+
+// 39. multi-step undo/redo walks the timeline in order.
 {
 	const { ed } = newEditor();
 	type(ed, "w1 w2 w3");
