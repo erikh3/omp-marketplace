@@ -159,7 +159,7 @@ edited in place; refresh them by re-vendoring from upstream.
 ```
 bun install
 bun run typecheck   # tsc --noEmit
-bun run smoke       # headless mode/motion checks
+bun test            # unit + integration suite (test/)
 ```
 
 ## Scope

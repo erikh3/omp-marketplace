@@ -10,7 +10,8 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "smoke": "bun smoke.ts"
+    "test": "bun test",
+    "test:cov": "bun test --coverage"
   },
   "devDependencies": {
     "@oh-my-pi/pi-coding-agent": "^17.0.0",
