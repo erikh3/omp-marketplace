@@ -23,6 +23,8 @@ export class ModeWidget implements Component {
 	readonly #theme: Theme;
 	#cached: readonly string[] | undefined;
 	#cachedWidth = -1;
+	/** The live ex command buffer (e.g. `":q"`), or `null` when not in ex mode. */
+	#exCommand: string | null = null;
 
 	constructor(mode: VimMode, theme: Theme) {
 		this.#mode = mode;
@@ -35,13 +37,28 @@ export class ModeWidget implements Component {
 		this.#cached = undefined;
 	}
 
+	/**
+	 * Updates the ex command buffer and invalidates the render cache when the
+	 * value changes. Pass `null` to exit ex display and revert to mode label.
+	 */
+	setExCommand(command: string | null): void {
+		if (this.#exCommand === command) return;
+		this.#exCommand = command;
+		this.#cached = undefined;
+	}
+
 	render(width: number): readonly string[] {
 		if (this.#cached && this.#cachedWidth === width) return this.#cached;
-		const label = ` ${LABELS[this.#mode]} `;
-		// NORMAL and the VISUAL modes use an accent inverse block (`\x1b[7m` is
+		const label =
+			this.#exCommand !== null
+				? ` EX ${this.#exCommand}_ `
+				: ` ${LABELS[this.#mode]} `;
+		// EX and NORMAL/VISUAL modes use an accent inverse block (`\x1b[7m` is
 		// reverse-video); INSERT stays muted so it reads as the resting state.
+		// Ex mode takes precedence: even if the underlying vim mode is insert,
+		// the ex command line always renders with accent reverse-video.
 		const styled =
-			this.#mode === "insert"
+			this.#exCommand === null && this.#mode === "insert"
 				? this.#theme.fg("muted", label)
 				: this.#theme.fg("accent", `\x1b[7m${label}\x1b[27m`);
 		const pad = Math.max(0, width - visibleWidth(styled));

@@ -1,4 +1,5 @@
 import type { ExtensionAPI } from "@oh-my-pi/pi-coding-agent";
+import { BUILTIN_SLASH_COMMAND_RESERVED_NAMES } from "@oh-my-pi/pi-coding-agent/slash-commands/builtin-registry";
 import { ModalVimEditor, type VimMode } from "./modal-editor.js";
 import { ModeWidget } from "./mode-widget.js";
 
@@ -31,8 +32,10 @@ export default function piVim(pi: ExtensionAPI): void {
 		// re-asserting the widget on a mode change repaints without churning
 		// component identity.
 		let widget: ModeWidget | undefined;
+		let currentMode: VimMode = "insert";
 
 		const applyMode = (mode: VimMode): void => {
+			currentMode = mode;
 			widget?.setMode(mode);
 			// Re-assert the widget so the host rebuilds the below-editor lane and
 			// requests a render; the factory hands back the same instance.
@@ -47,10 +50,31 @@ export default function piVim(pi: ExtensionAPI): void {
 			}
 		};
 
+		const applyEx = (command: string | null): void => {
+			widget?.setExCommand(command);
+			// Re-assert the widget the same way applyMode does.
+			ctx.ui.setWidget(WIDGET_KEY, (_tui, theme) => (widget ??= new ModeWidget(currentMode, theme)), {
+				placement: "belowEditor",
+			});
+			// Block cursor while ex is active; restore mode shape when cleared.
+			try {
+				process.stdout.write(command !== null ? "\x1b[2 q" : CURSOR_SHAPE[currentMode]);
+			} catch (error) {
+				log.debug?.(`pi-vim: cursor-shape write failed: ${String(error)}`);
+			}
+		};
+
 		try {
 			ctx.ui.setEditorComponent((tui, theme, keybindings) => {
 				const editor = new ModalVimEditor(tui, theme, keybindings);
 				editor.onModeChange = applyMode;
+				editor.onExCommandChange = applyEx;
+				editor.onQuit = () => ctx.shutdown();
+				editor.notifyUser = (message) => ctx.ui.notify(message, "warning");
+				editor.getCommandNames = () => new Set([
+					...BUILTIN_SLASH_COMMAND_RESERVED_NAMES,
+					...pi.getCommands().map((c) => c.name),
+				]);
 				return editor;
 			});
 			// Fresh editor starts in INSERT; reflect that immediately.

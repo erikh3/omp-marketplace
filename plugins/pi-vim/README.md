@@ -2,8 +2,9 @@
 
 Vim-style modal editing in the omp prompt box. `Esc` drops the prompt into
 NORMAL mode for motions and edits; `i`/`a`/`o`/… return to INSERT; `v`/`V`
-start a VISUAL selection. INSERT mode is the stock omp editor, unchanged
-(typing, paste, history, autocomplete, submit).
+start a VISUAL selection; `:` opens an EX command line into omp's palette.
+INSERT mode is the stock omp editor, unchanged (typing, paste, history,
+autocomplete, submit).
 
 ## Install
 
@@ -23,9 +24,9 @@ omp plugin link ./plugins/pi-vim
 ## Modes
 
 The active mode shows as a right-aligned indicator below the editor
-(`NORMAL` / `INSERT` / `VISUAL` / `V-LINE`, like Pi's TUI) and, on terminals
-that honor DECSCUSR, as a steady block (NORMAL and VISUAL) or blinking bar
-(INSERT) cursor.
+(`NORMAL` / `INSERT` / `VISUAL` / `V-LINE` / `EX`, like Pi's TUI) and, on
+terminals that honor DECSCUSR, as a steady block (NORMAL, VISUAL, and EX) or
+blinking bar (INSERT) cursor.
 
 | From | Key | Action |
 | --- | --- | --- |
@@ -40,6 +41,9 @@ that honor DECSCUSR, as a steady block (NORMAL and VISUAL) or blinking bar
 | NORMAL | `V` | → VISUAL-LINE (linewise) |
 | VISUAL | `Esc` / `v` | → NORMAL |
 | VISUAL-LINE | `Esc` / `V` | → NORMAL |
+| NORMAL | `:` | → EX (execute command line) |
+| EX | `Enter` | Run the command |
+| EX | `Esc` | Cancel EX |
 
 ## NORMAL-mode keys
 
@@ -84,8 +88,39 @@ moves the other end. Both ends are inclusive.
 | `V` (in `v`) / `v` (in `V`) | Switch charwise ↔ linewise |
 | `Esc` | Cancel the selection → NORMAL |
 
+> [!NOTE]
+> The selection is **not** highlighted. omp's editor exposes no per-column
+> text-decoration hook (its only styling seam, `decorateText`, receives a whole
+> logical line with no cursor/anchor index), so pi-vim cannot paint the span.
+> The selection is tracked internally from the anchor to the cursor: watch the
+> block cursor and the `VISUAL` / `V-LINE` footer to see where it runs, then the
+> operator (`d`, `c`, …) applies to anchor→cursor. Upstream `lajarre/pi-vim` is
+> the same — its own renderer only syncs the cursor shape and mode label.
+
 Yank/paste is not yet available (pi-vim has no registers), so `y` is inert in
 VISUAL mode for now.
+
+## EX (execute) mode
+
+`:` in NORMAL opens a Vim-style command line, shown in the footer as `EX :cmd_`.
+`Enter` runs it, `Esc` cancels, `Backspace` deletes (on a bare `:` it exits EX).
+This is a bridge to omp's command palette, not real Vim ex semantics: `:name` is
+exactly typing `/name` and pressing Enter.
+
+| Command | Action |
+| --- | --- |
+| `:q` `:qa` `:quit` `:qall` `:quitall` | Quit the session — only when the prompt is empty/whitespace |
+| `:q!` (and the `!` forms above) | Force-quit even with a non-empty prompt |
+| `:{name}` | Run the omp slash command `/{name}` (builtins + `pi.getCommands()`) |
+| `:{name} {args}` | Run `/{name} {args}` (everything after the first space) |
+| `:!{cmd}` | Run `{cmd}` in omp's shell (`!{cmd}`); `:!!{cmd}` runs it out of context |
+
+The composed prompt is snapshotted before a dispatch and restored after, so a
+command never eats your draft. A pasted newline never auto-submits — only a
+typed `Enter` does. Reserved Vim names (`s`, `g`, `w`, `d`, …) are held for
+future line-address support and notify instead of dispatching; an unknown name
+notifies rather than reaching the model. EX editing never touches the undo
+timeline.
 
 ## How it works
 
@@ -122,9 +157,9 @@ bun run smoke       # headless mode/motion checks
 
 ## Scope
 
-NORMAL, INSERT, VISUAL, and VISUAL-LINE modes with motions, char-find,
-paragraph and matching-pair motions, `d`/`c` operators, text objects, visual
-selections, and `u` / `Ctrl+r` undo/redo. Not implemented: an ex line (`:`),
-registers / yank / paste, and `.` repeat. See
+NORMAL, INSERT, VISUAL, and VISUAL-LINE modes plus an EX command line, with
+motions, char-find, paragraph and matching-pair motions, `d`/`c` operators,
+text objects, visual selections, `u` / `Ctrl+r` undo/redo, and `:` command
+dispatch. Not implemented: registers / yank / paste and `.` repeat. See
 [`lajarre/pi-vim`](https://github.com/lajarre/pi-vim) (upstream Pi) for the
 full-featured equivalent this borrows its motion logic from.

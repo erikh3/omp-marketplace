@@ -658,5 +658,199 @@ function check(name: string, actual: unknown, expected: unknown): void {
 	check("o then extend deletes correct span", ed.getText(), "aef");
 }
 
+// --- EX (execute) mode --------------------------------------------------
+
+// Wire the ex callbacks the way index.ts does, capturing host effects.
+function newExEditor(commands: string[] = []): {
+	ed: ModalVimEditor;
+	ex: (string | null)[];
+	dispatched: string[];
+	notified: string[];
+	quit: { count: number };
+} {
+	const ed = new ModalVimEditor(theme);
+	const ex: (string | null)[] = [];
+	const dispatched: string[] = [];
+	const notified: string[] = [];
+	const quit = { count: 0 };
+	ed.onExCommandChange = (c) => ex.push(c);
+	ed.runExCommand = (line) => {
+		dispatched.push(line);
+	};
+	ed.notifyUser = (m) => notified.push(m);
+	ed.onQuit = () => {
+		quit.count++;
+	};
+	ed.getCommandNames = () => new Set(commands);
+	return { ed, ex, dispatched, notified, quit };
+}
+
+const CR = "\r";
+function typeEx(ed: ModalVimEditor, s: string): void {
+	for (const ch of s) ed.handleInput(ch);
+}
+
+// 47. `:` opens ex; the mode stays NORMAL (ex is a sub-state).
+{
+	const { ed, ex } = newExEditor();
+	ed.handleInput(ESC);
+	ed.handleInput(":");
+	check("`:` keeps VimMode normal", ed.mode, "normal");
+	check("`:` opens ex buffer", ex.at(-1), ":");
+	typeEx(ed, "q");
+	check("typing extends ex buffer", ex.at(-1), ":q");
+}
+
+// 48. Esc cancels ex; Backspace on bare `:` exits.
+{
+	const { ed, ex } = newExEditor();
+	ed.handleInput(ESC);
+	ed.handleInput(":");
+	ed.handleInput(ESC);
+	check("esc clears ex", ex.at(-1), null);
+	ed.handleInput(":");
+	ed.handleInput("\x7f"); // backspace on bare ":"
+	check("backspace on bare colon exits ex", ex.at(-1), null);
+}
+
+// 49. Backspace deletes the last ex char.
+{
+	const { ed, ex } = newExEditor();
+	ed.handleInput(ESC);
+	typeEx(ed, ":qa");
+	ed.handleInput("\x7f");
+	check("backspace drops last ex char", ex.at(-1), ":q");
+}
+
+// 50. `:q` on empty prompt quits; ex clears.
+{
+	const { ed, ex, quit } = newExEditor();
+	ed.handleInput(ESC); // empty buffer
+	typeEx(ed, ":q");
+	ed.handleInput(CR);
+	check("`:q` on empty prompt quits", quit.count, 1);
+	check("submit clears ex", ex.at(-1), null);
+}
+
+// 51. `:q` on a non-empty prompt warns and does NOT quit.
+{
+	const { ed, notified, quit } = newExEditor();
+	type(ed, "draft text");
+	ed.handleInput(ESC);
+	typeEx(ed, ":q");
+	ed.handleInput(CR);
+	check("`:q` with dirty prompt does not quit", quit.count, 0);
+	check("`:q` with dirty prompt warns", notified.at(-1)?.includes("not empty"), true);
+	check("dirty-prompt `:q` preserves draft", ed.getText(), "draft text");
+}
+
+// 52. `:q!` force-quits even with a dirty prompt.
+{
+	const { ed, quit } = newExEditor();
+	type(ed, "draft");
+	ed.handleInput(ESC);
+	typeEx(ed, ":q!");
+	ed.handleInput(CR);
+	check("`:q!` force-quits dirty prompt", quit.count, 1);
+}
+
+// 53. A known command dispatches `/name` and restores the draft.
+{
+	const { ed, dispatched } = newExEditor(["tree"]);
+	type(ed, "my prompt");
+	ed.handleInput(ESC);
+	typeEx(ed, ":tree");
+	ed.handleInput(CR);
+	check("known command dispatches slash form", dispatched, ["/tree"]);
+	check("dispatch restores the draft", ed.getText(), "my prompt");
+}
+
+// 54. Command args pass through after the first whitespace run.
+{
+	const { ed, dispatched } = newExEditor(["model"]);
+	ed.handleInput(ESC);
+	typeEx(ed, ":model opus");
+	ed.handleInput(CR);
+	check("command args pass through", dispatched, ["/model opus"]);
+}
+
+// 55. `:!cmd` and `:!!cmd` dispatch the shell line verbatim; `:!` alone is unsupported.
+{
+	const { ed, dispatched, notified } = newExEditor();
+	ed.handleInput(ESC);
+	typeEx(ed, ":!ls");
+	ed.handleInput(CR);
+	check("`:!ls` dispatches shell line", dispatched.at(-1), "!ls");
+	typeEx(ed, ":!!git status");
+	ed.handleInput(CR);
+	check("`:!!cmd` dispatches out-of-context shell line", dispatched.at(-1), "!!git status");
+	typeEx(ed, ":!");
+	ed.handleInput(CR);
+	check("bare `:!` is unsupported", notified.at(-1)?.includes("Unsupported"), true);
+}
+
+// 56. Reserved names notify and never dispatch.
+{
+	const { ed, dispatched, notified } = newExEditor(["w"]); // even if a command named w exists
+	ed.handleInput(ESC);
+	typeEx(ed, ":w");
+	ed.handleInput(CR);
+	check("reserved `:w` is not dispatched", dispatched, []);
+	check("reserved `:w` notifies", notified.at(-1)?.includes("Reserved"), true);
+}
+
+// 57. Prototype-chain names are NOT treated as quit/reserved (Object.hasOwn guard).
+{
+	const { ed, notified, quit } = newExEditor();
+	ed.handleInput(ESC); // empty prompt: a false quit-match would shut down
+	typeEx(ed, ":toString");
+	ed.handleInput(CR);
+	check("`:toString` does not quit", quit.count, 0);
+	check("`:toString` is unsupported, not reserved/quit", notified.at(-1)?.includes("Unsupported"), true);
+}
+
+// 58. Unknown command notifies unsupported.
+{
+	const { ed, dispatched, notified } = newExEditor(["tree"]);
+	ed.handleInput(ESC);
+	typeEx(ed, ":frobnicate");
+	ed.handleInput(CR);
+	check("unknown command not dispatched", dispatched, []);
+	check("unknown command notifies unsupported", notified.at(-1)?.includes("Unsupported"), true);
+}
+
+// 59. A pasted newline in ex never auto-submits (first-line-wait).
+{
+	const { ed, ex, dispatched } = newExEditor(["tree"]);
+	ed.handleInput(ESC);
+	ed.handleInput(":");
+	ed.handleInput("\x1b[200~tree\nrest\x1b[201~"); // bracketed paste with embedded newline
+	check("paste keeps only the first line", ex.at(-1), ":tree");
+	check("pasted newline does not auto-submit", dispatched, []);
+}
+
+// 60. Ex editing does not touch the undo timeline.
+{
+	const { ed } = newExEditor(["tree"]);
+	type(ed, "hello");
+	ed.handleInput(ESC);
+	ed.handleInput("x"); // delete 'o' -> "hell" (one undo unit)
+	check("normal edit applied", ed.getText(), "hell");
+	typeEx(ed, ":tree");
+	ed.handleInput(CR); // dispatch + restore, no undo unit
+	ed.handleInput("u"); // should undo the `x`, not an ex artifact
+	check("undo after ex reverts the real edit", ed.getText(), "hello");
+}
+
+// 61. The mode widget shows the EX command line.
+{
+	const themeStub = { fg: (_c: string, s: string) => s } as unknown as Theme;
+	const widget = new ModeWidget("normal", themeStub);
+	widget.setExCommand(":q");
+	check("widget shows EX command", (widget.render(20)[0] ?? "").includes("EX :q_"), true);
+	widget.setExCommand(null);
+	check("widget reverts to mode label", (widget.render(20)[0] ?? "").includes("NORMAL"), true);
+}
+
 console.log(failures === 0 ? "\nALL PASS" : `\n${failures} FAILURE(S)`);
 process.exit(failures === 0 ? 0 : 1);

@@ -87,6 +87,18 @@ export class ModalVimEditor extends CustomEditor {
 	#visualAnchor: VisualPosition | null = null;
 	/** Notified on every mode change so the host can repaint the indicator + cursor shape. */
 	onModeChange: ((mode: VimMode) => void) | undefined;
+	/** Fired whenever the ex command buffer changes: the full buffer starting with ":"
+	 * (e.g. `":q"`) while ex mode is active, or `null` when ex mode is inactive/cleared. */
+	onExCommandChange: ((command: string | null) => void) | undefined;
+	/** Dispatches a command line (`"/name args"` or `"!cmd"`) through the host. Optional;
+	 * when unset, the editor falls back to setting the buffer text and calling {@link onSubmit}. */
+	runExCommand: ((commandLine: string) => void | Promise<void>) | undefined;
+	/** Host shutdown (`:q` etc.). Optional; unset = no-op. */
+	onQuit: (() => void) | undefined;
+	/** Warning notifications ("Unsupported ex command", quit-with-dirty-prompt, etc.). */
+	notifyUser: ((message: string) => void) | undefined;
+	/** Resolved at submit time so mid-session-registered commands are reachable. */
+	getCommandNames: (() => ReadonlySet<string>) | undefined;
 	/**
 	 * pi-vim owns its own undo/redo timeline instead of the base editor's, whose
 	 * `#applyUndo` pops without capturing the replaced state (so it cannot redo)
@@ -99,6 +111,18 @@ export class ModalVimEditor extends CustomEditor {
 	#redoStack: EditSnapshot[] = [];
 	/** Snapshot taken when the current change began, pending commit once it ends. */
 	#pendingSnapshot: EditSnapshot | null = null;
+	/** `null` when ex mode is inactive; otherwise the full command buffer starting with `":"`. */
+	#exCommand: string | null = null;
+
+	/** Quit command names recognised by `:q` / `:qa` / `:quit` etc. */
+	static readonly #QUIT_NAMES: Record<string, true> = {
+		q: true, qa: true, quit: true, qall: true, quitall: true,
+	};
+	/** Ex commands reserved for future line-address / range support; notify instead of dispatch. */
+	static readonly #RESERVED_NAMES: Record<string, true> = {
+		s: true, g: true, v: true, d: true, m: true, t: true, co: true, j: true,
+		w: true, r: true, normal: true, sort: true, "&": true, ">": true, "<": true,
+	};
 
 	get mode(): VimMode {
 		return this.#mode;
@@ -405,6 +429,13 @@ export class ModalVimEditor extends CustomEditor {
 			this.#commitChange();
 			return;
 		}
+		// EX (execute) mode is a NORMAL sub-state: while a `:` command line is
+		// open, every key edits that buffer, never the draft or the undo timeline
+		// (routed before #beginChange so no undo unit forms).
+		if (this.#exCommand !== null) {
+			this.#handleEx(data);
+			return;
+		}
 		// NORMAL command: snapshot the buffer, dispatch, then commit. Commands
 		// that only switch to INSERT (`i`, `a`) change no text, so the commit
 		// no-ops; commands that also edit (`o`, `cw`, `s`) commit that edit as
@@ -654,6 +685,10 @@ export class ModalVimEditor extends CustomEditor {
 				this.setMode("insert");
 				return;
 
+			case ":":
+				this.#startEx();
+				return;
+
 			default:
 				// Swallow every other key: NORMAL mode must never leak text.
 				return;
@@ -776,6 +811,9 @@ export class ModalVimEditor extends CustomEditor {
 			case "S":
 				this.#applyVisualOperator("c", true);
 				return true;
+			case ":":
+				return true;
+
 			default:
 				return false;
 		}
@@ -1073,5 +1111,156 @@ export class ModalVimEditor extends CustomEditor {
 		const { line, col } = this.getCursor();
 		const text = lines[line] ?? "";
 		this.#deleteAbsRange(lineColToAbs(lines, line, col), lineColToAbs(lines, line, text.length));
+	}
+
+	// --- ex mode -----------------------------------------------------------
+
+	/** Open the ex command buffer. */
+	#startEx(): void {
+		this.#exCommand = ":";
+		this.onExCommandChange?.(":");
+	}
+
+	/** Close the ex command buffer without submitting. */
+	#clearEx(): void {
+		this.#exCommand = null;
+		this.onExCommandChange?.(null);
+	}
+
+	/** Update the ex command buffer and notify the host. */
+	#setEx(next: string): void {
+		this.#exCommand = next;
+		this.onExCommandChange?.(next);
+	}
+
+	/**
+	 * Route a keystroke while ex mode is active. Called only when
+	 * `#exCommand !== null`; never opens an undo unit.
+	 */
+	#handleEx(data: string): void {
+		if (this.#isEscape(data)) {
+			this.#clearEx();
+			return;
+		}
+		if (matchesKey(data, "enter") || data === "\r" || data === "\n") {
+			this.#submitEx();
+			return;
+		}
+		if (matchesKey(data, "backspace") || data === "\x7f" || data === "\x08") {
+			if (this.#exCommand === ":") {
+				this.#clearEx();
+			} else {
+				this.#setEx(this.#exCommand!.slice(0, -1));
+			}
+			return;
+		}
+		// Bracketed paste: extract first line, never auto-submit on embedded newline.
+		if (data.includes("\x1b[200~")) {
+			const startIdx = data.indexOf("\x1b[200~") + 6; // "\x1b[200~".length
+			const endMarker = data.indexOf("\x1b[201~");
+			const raw = endMarker === -1 ? data.slice(startIdx) : data.slice(startIdx, endMarker);
+			const nlIdx = raw.search(/[\r\n]/);
+			const firstLine = nlIdx === -1 ? raw : raw.slice(0, nlIdx);
+			this.#setEx(this.#exCommand! + firstLine);
+			return;
+		}
+		// Non-printable control chunk not handled above: bail out of ex mode.
+		if (data.length > 0 && data.charCodeAt(0) < 0x20) {
+			this.#clearEx();
+			return;
+		}
+		// Printable character: append to buffer.
+		this.#setEx(this.#exCommand! + data);
+	}
+
+	/**
+	 * Submit the current ex command buffer. Clears ex mode first, then
+	 * dispatches through the resolution order inherited from upstream pi-vim.
+	 */
+	#submitEx(): void {
+		const command = (this.#exCommand ?? "").slice(1).trim();
+		this.#clearEx();
+		if (!command) return;
+
+		// 1. Quit family: :q / :qa / :quit / :qall / :quitall (with optional !)
+		const force = command.endsWith("!");
+		const quitName = force ? command.slice(0, -1) : command;
+		if (Object.hasOwn(ModalVimEditor.#QUIT_NAMES, quitName)) {
+			if (!force && this.getText().trim().length > 0) {
+				this.notifyUser?.(`Prompt is not empty; use :${command}! to quit anyway`);
+				return;
+			}
+			this.onQuit?.();
+			return;
+		}
+
+		// 2. Shell passthrough: :!cmd or :!!cmd
+		if (command.startsWith("!")) {
+			const shell = command.replace(/^!+/, "").trim();
+			if (shell) {
+				this.#dispatchEx(command);
+			} else {
+				this.notifyUser?.(`Unsupported ex command: :${command}`);
+			}
+			return;
+		}
+
+		// 3. Split into name and args.
+		const sep = command.search(/\s/);
+		const name = sep === -1 ? command : command.slice(0, sep);
+		const args = sep === -1 ? "" : command.slice(sep + 1).trim();
+		const bareName = name.endsWith("!") ? name.slice(0, -1) : name;
+
+		// 4. Reserved commands (line-address / range operations, `:w`, etc.).
+		if (Object.hasOwn(ModalVimEditor.#RESERVED_NAMES, bareName)) {
+			this.notifyUser?.(`Reserved ex command: :${name}`);
+			return;
+		}
+
+		// 5. Known slash command registered with the host.
+		if (this.getCommandNames?.().has(name)) {
+			this.#dispatchEx(args ? `/${name} ${args}` : `/${name}`);
+			return;
+		}
+
+		// 6. Unknown.
+		this.notifyUser?.(`Unsupported ex command: :${command}`);
+	}
+
+	/**
+	 * Dispatch `commandLine` through the host, then synchronously restore the
+	 * draft buffer + cursor so the submission never eats the user's prompt.
+	 * An async submit path also re-restores when the promise settles if the
+	 * buffer was cleared.
+	 */
+	#dispatchEx(commandLine: string): void {
+		const text = this.getText();
+		const { line, col } = this.getCursor();
+
+		let r: void | Promise<void>;
+		if (this.runExCommand !== undefined) {
+			r = this.runExCommand(commandLine);
+		} else {
+			this.setText(commandLine);
+			r = this.onSubmit?.(commandLine);
+		}
+
+		// Synchronous restore.
+		this.setText(text);
+		this.#moveToAbs(lineColToAbs(this.getLines(), line, col));
+
+		// Async restore: some hosts clear the buffer after awaiting the promise.
+		if (r instanceof Promise) {
+			void r
+				.then(() => {
+					if (this.getText() === "") {
+						this.setText(text);
+						this.#moveToAbs(lineColToAbs(this.getLines(), line, col));
+					}
+				})
+				.catch(() => {
+					// Swallow: a throw must not break the editor.
+				});
+		}
 	}
 }
