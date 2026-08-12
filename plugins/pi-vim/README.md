@@ -23,10 +23,12 @@ omp plugin link ./plugins/pi-vim
 
 ## Modes
 
-The active mode shows as a right-aligned indicator below the editor
-(`NORMAL` / `INSERT` / `VISUAL` / `V-LINE` / `EX`, like Pi's TUI) and, on
-terminals that honor DECSCUSR, as a steady block (NORMAL, VISUAL, and EX) or
-blinking bar (INSERT) cursor.
+The active mode shows as a right-aligned indicator below the editor (like Pi's
+TUI): a filled block whose color tracks the mode. INSERT uses the muted border
+tone, NORMAL the accent border, VISUAL / V-LINE the custom-message color, and
+EX the warning color (all from the active theme, matching upstream
+`lajarre/pi-vim`). On terminals that honor DECSCUSR the cursor also follows the
+mode: a steady block (NORMAL, VISUAL, and EX) or a blinking bar (INSERT).
 
 | From | Key | Action |
 | --- | --- | --- |

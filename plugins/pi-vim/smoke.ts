@@ -1,6 +1,6 @@
 import { ModalVimEditor, type VimMode } from "./src/modal-editor.ts";
 import { ModeWidget } from "./src/mode-widget.ts";
-import type { EditorTheme } from "@oh-my-pi/pi-tui";
+import { visibleWidth, type EditorTheme } from "@oh-my-pi/pi-tui";
 import type { Theme } from "@oh-my-pi/pi-coding-agent";
 
 // Minimal EditorTheme stub. The smoke test never calls render(), so only
@@ -162,8 +162,8 @@ function check(name: string, actual: unknown, expected: unknown): void {
 	const themeStub = { fg: (_c: string, s: string) => s } as unknown as Theme;
 	const widget = new ModeWidget("insert", themeStub);
 	const insertLine = widget.render(20)[0] ?? "";
-	check("widget right-aligns (fills width)", insertLine.length, 20);
-	check("widget ends with INSERT label", insertLine.endsWith(" INSERT "), true);
+	check("widget right-aligns (fills width)", visibleWidth(insertLine), 20);
+	check("widget contains INSERT label", insertLine.includes(" INSERT "), true);
 	check("widget left-pads with spaces", insertLine.startsWith("  "), true);
 	widget.setMode("normal");
 	const normalLine = widget.render(20)[0] ?? "";
