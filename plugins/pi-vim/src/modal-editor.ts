@@ -1,6 +1,8 @@
 import { CustomEditor } from "@oh-my-pi/pi-coding-agent";
 import { canonicalKeyId, matchesKey, parseKey } from "@oh-my-pi/pi-tui";
 import { graphemeCount, graphemeSteps, lineColToAbs, moveCursorToAbs } from "./host/keystroke-bridge.js";
+import type { HostEffects, Pos, AbsRange, VimMode } from "./host/adapter.js";
+export type { VimMode } from "./host/adapter.js";
 import {
 	findCharMotionTarget,
 	findFirstNonWhitespaceColumn,
@@ -28,8 +30,6 @@ import {
 import { History, type Snapshot } from "./host/history.js";
 import { parseExLine } from "./ex/parser.js";
 import { dispatchEx, type ExHost } from "./ex/commands.js";
-
-export type VimMode = "normal" | "insert" | "visual" | "visual-line";
 
 /**
  * Raw terminal byte sequences replayed into the base editor. NORMAL-mode
@@ -63,7 +63,7 @@ type Operator = "d" | "c" | "y";
  * primitives translate those offsets into replayed key presses. Every unmapped
  * printable key is swallowed so it can never leak into the draft.
  */
-export class ModalVimEditor extends CustomEditor {
+export class ModalVimEditor extends CustomEditor implements HostEffects {
 	#mode: VimMode = "insert";
 	/** Pending count prefix accumulated in NORMAL mode (e.g. the `12` of `12j`). */
 	#count = "";
@@ -97,8 +97,11 @@ export class ModalVimEditor extends CustomEditor {
 	runExCommand: ((commandLine: string) => void | Promise<void>) | undefined;
 	/** Warning notifications ("Unsupported ex command", quit-with-dirty-prompt, etc.). */
 	notifyUser: ((message: string) => void) | undefined;
-	/** Resolved at submit time so mid-session-registered commands are reachable. */
-	getCommandNames: (() => ReadonlySet<string>) | undefined;
+	/**
+	 * Resolved at submit time so mid-session-registered commands are reachable.
+	 * Non-optional with a no-op default so the class satisfies {@link HostEffects}.
+	 */
+	getCommandNames: () => ReadonlySet<string> = () => new Set<string>();
 	/**
 	 * pi-vim owns its own undo/redo timeline instead of the base editor's, whose
 	 * `#applyUndo` pops without capturing the replaced state (so it cannot redo)
@@ -1376,5 +1379,58 @@ export class ModalVimEditor extends CustomEditor {
 		}
 		this.setText("/quit");
 		void this.onSubmit?.("/quit");
+	}
+
+	// --- HostEffects facade (interfaces introduced in Task 4) ---------------
+	// These wrappers exist to satisfy the HostEffects interface and prove the
+	// seam compiles. The evaluator that calls them arrives in Tasks 6–7; the
+	// existing dispatch code is UNCHANGED and continues to call the private
+	// methods and callbacks directly.
+
+	/** Move the cursor to a buffer position by replaying arrow keys. */
+	moveCursor(to: Pos): void {
+		this.#moveToAbs(lineColToAbs(this.getLines(), to.line, to.col));
+	}
+
+	/**
+	 * Replace the UTF-16 half-open range `[range.start, range.end)` with `text`.
+	 * Pure insert: empty range (cursor is moved to `range.start` first).
+	 * Pure delete: empty text. Replace: both.
+	 */
+	replaceRange(range: AbsRange, text: string): void {
+		if (range.start < range.end) {
+			// #deleteAbsRange moves cursor to lo, then forward-deletes; cursor ends at range.start.
+			this.#deleteAbsRange(range.start, range.end);
+		} else {
+			// Pure insert: move cursor to the insert position.
+			this.#moveToAbs(range.start);
+		}
+		if (text.length > 0) this.insertText(text);
+	}
+
+	/** Forward `data` directly to the base editor (INSERT passthrough). */
+	forward(data: string): void {
+		super.handleInput(data);
+	}
+
+	/** Set the active mode and fire `onModeChange` if it actually changed. */
+	signalMode(mode: VimMode): void {
+		this.setMode(mode);
+	}
+
+	/** Update the ex command buffer and fire `onExCommandChange`. */
+	signalEx(buffer: string | null): void {
+		this.#exCommand = buffer;
+		this.onExCommandChange?.(buffer);
+	}
+
+	/** Run `line` through the host's ex-command pipeline with buffer restore. */
+	runEx(line: string): void | Promise<void> {
+		this.#runExWithRestore(line);
+	}
+
+	/** Emit a warning notification via `notifyUser`. */
+	notify(message: string): void {
+		this.notifyUser?.(message);
 	}
 }
