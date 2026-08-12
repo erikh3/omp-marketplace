@@ -34,6 +34,7 @@ const SEQ = {
 	up: "\x1b[A",
 	down: "\x1b[B",
 	deleteForward: "\x1b[3~", // forward delete
+	undo: "\x1f", // ctrl+_ (tui.editor.undo)
 } as const;
 
 /** Any single grapheme is at most a handful of UTF-16 units; this window is a
@@ -469,6 +470,9 @@ export class ModalVimEditor extends CustomEditor {
 				return;
 
 			// --- edits ---
+			case "u":
+				this.#repeat(SEQ.undo, this.#takeCount());
+				return;
 			case "x":
 				this.#deleteUnderCursor(this.#takeCount());
 				return;

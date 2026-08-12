@@ -56,6 +56,7 @@ Motions accept a `{count}` prefix (e.g. `3j`, `12l`).
 | `D` `C` | Delete / change to end of line |
 | `d{motion}` `c{motion}` | Operator + any motion above (`dw`, `d$`, `df.`, `d%`, `dj`, …) |
 | `d{i,a}{obj}` `c{i,a}{obj}` | Text objects `w W " ' \`\` ( ) [ ] { } b B` (`ci"`, `daw`, `di(`) |
+| `u` `{count}u` | Undo the last edit(s) |
 
 `Enter` still submits from NORMAL mode, and modified app chords (model cycle,
 history search, external editor, …) pass through untouched. Any unmapped
@@ -89,8 +90,7 @@ bun run smoke       # headless mode/motion checks
 ## Scope
 
 NORMAL and INSERT modes with motions, char-find, paragraph and matching-pair
-motions, `d`/`c` operators, and text objects. Not implemented: VISUAL mode, an
-ex line (`:`), registers / yank / paste, `.` repeat, and vim-style `u` /
-`Ctrl+r` undo. See [`lajarre/pi-vim`](https://github.com/lajarre/pi-vim)
-(upstream Pi) for the full-featured equivalent this borrows its motion logic
-from.
+motions, `d`/`c` operators, text objects, and `u` undo. Not implemented: VISUAL
+mode, an ex line (`:`), registers / yank / paste, `.` repeat, and `Ctrl+r`
+redo. See [`lajarre/pi-vim`](https://github.com/lajarre/pi-vim) (upstream Pi)
+for the full-featured equivalent this borrows its motion logic from.

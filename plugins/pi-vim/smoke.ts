@@ -370,5 +370,16 @@ function check(name: string, actual: unknown, expected: unknown): void {
 	check("cw on whitespace spares next word", ed.getText(), "foo_bar");
 }
 
+// 28. u undoes the last edit from NORMAL mode.
+{
+	const { ed } = newEditor();
+	type(ed, "hello");
+	ed.handleInput(ESC);
+	ed.handleInput("x"); // delete 'o' -> "hell"
+	check("x deleted last char", ed.getText(), "hell");
+	ed.handleInput("u"); // undo the delete
+	check("u restores the edit", ed.getText(), "hello");
+}
+
 console.log(failures === 0 ? "\nALL PASS" : `\n${failures} FAILURE(S)`);
 process.exit(failures === 0 ? 0 : 1);
