@@ -76,4 +76,8 @@ export interface HostEffects extends BufferView {
 	notify(message: string): void;
 	/** Return the current set of known command names (for `:` tab-complete). */
 	getCommandNames(): ReadonlySet<string>;
+	/** Undo the last committed change(s). Cancels any open pending change. */
+	undo(count: number): void;
+	/** Redo the last undone change(s). Cancels any open pending change. */
+	redo(count: number): void;
 }

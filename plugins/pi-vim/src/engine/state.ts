@@ -15,7 +15,7 @@
  * current dispatch and are reset by `resetInput` along with everything else.
  */
 
-import type { VimMode } from "../host/adapter.js";
+import type { VimMode, HostEffects } from "../host/adapter.js";
 import type { CharMotion } from "../vim/types.js";
 import type { TextObjectKind } from "../vim/text-objects.js";
 import { RegisterFile } from "./registers.js";
@@ -140,4 +140,10 @@ export function hasPending(s: VimState): boolean {
 		s.input.replacePending ||
 		s.input.pendingG
 	);
+}
+
+/** Evaluation context threaded through the dispatch evaluator and all registries. */
+export interface Ctx {
+	state: VimState;
+	host: HostEffects;
 }
