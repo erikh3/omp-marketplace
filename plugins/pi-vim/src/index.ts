@@ -69,6 +69,13 @@ export default function piVim(pi: ExtensionAPI): void {
 				const editor = new ModalVimEditor(tui, theme, keybindings);
 				editor.onModeChange = applyMode;
 				editor.onExCommandChange = applyEx;
+				// Dispatch an ex command line (`/name args`, `!cmd`, `/quit`) through
+				// the host's user-prompt pipeline — the same seam a manually typed
+				// submission uses, so `:` commands resolve exactly like typing them
+				// (idle starts a turn; a streaming turn queues it as a steer). Without
+				// this the editor silently falls back to setText+onSubmit, which the
+				// interactive host does not wire, so `:` commands never dispatched.
+				editor.runExCommand = (commandLine) => pi.sendUserMessage(commandLine);
 				editor.notifyUser = (message) => ctx.ui.notify(message, "warning");
 				editor.getCommandNames = () => new Set([
 					...BUILTIN_SLASH_COMMAND_RESERVED_NAMES,
