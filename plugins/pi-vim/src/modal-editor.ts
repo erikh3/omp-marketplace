@@ -17,7 +17,6 @@ import {
 	resolveDelimitedTextObjectRange,
 	resolveMatchingPairMotionTarget,
 	resolveWordTextObjectRange,
-	type TextObjectKind,
 } from "./vim/text-objects.js";
 import type { CharMotion } from "./vim/types.js";
 import {
@@ -30,6 +29,7 @@ import {
 import { History, type Snapshot } from "./host/history.js";
 import { parseExLine } from "./ex/parser.js";
 import { dispatchEx, type ExHost } from "./ex/commands.js";
+import { type VimState, makeVimState, resetInput, takeCount, hasPending, type Operator } from "./engine/state.js";
 
 /**
  * Raw terminal byte sequences replayed into the base editor. NORMAL-mode
@@ -50,8 +50,6 @@ const SEQ = {
  * safe upper bound for measuring the cluster that starts at an offset. */
 const GRAPHEME_WINDOW = 16;
 
-type Operator = "d" | "c" | "y";
-
 /**
  * A {@link CustomEditor} that adds Vim NORMAL/INSERT modal editing to omp's
  * prompt.
@@ -64,29 +62,13 @@ type Operator = "d" | "c" | "y";
  * printable key is swallowed so it can never leak into the draft.
  */
 export class ModalVimEditor extends CustomEditor implements HostEffects {
-	#mode: VimMode = "insert";
-	/** Pending count prefix accumulated in NORMAL mode (e.g. the `12` of `12j`). */
-	#count = "";
-	/** Set after `d`/`c`; the next key(s) resolve the operator's range. */
-	#op: Operator | null = null;
-	/** Set after an operator sees `i`/`a`; the next key is the text-object. */
-	#textObject: TextObjectKind | null = null;
-	/** Set after `f`/`F`/`t`/`T` (bare or under an operator); next key is the target char. */
-	#charPending: CharMotion | null = null;
-	/** Set after `r`; next key replaces the grapheme under the cursor. */
-	#replacePending = false;
-	/** True after `g`, waiting for a second `g` (`gg`). */
-	#pendingG = false;
-	/** Last `f`/`F`/`t`/`T` for `;` / `,` repeat. */
-	#lastCharMotion: { motion: CharMotion; char: string } | null = null;
-	/** Where `v`/`V` was pressed; the fixed end of the live visual selection. */
-	#visualAnchor: VisualPosition | null = null;
 	/**
-	 * Vim's unnamed register: the last yanked/deleted/changed text plus whether
-	 * it was captured linewise. `p`/`P` read it; a linewise payload pastes on its
-	 * own line(s), a charwise one inline. `null` means nothing has been captured.
+	 * All mutable vim state consolidated into one struct. Replaces the 11
+	 * fields that were previously scattered: `#mode`, `#count`, `#op`,
+	 * `#textObject`, `#charPending`, `#replacePending`, `#pendingG`,
+	 * `#lastCharMotion`, `#visualAnchor`, `#register`, and `#exCommand`.
 	 */
-	#register: { text: string; linewise: boolean } | null = null;
+	#state: VimState = makeVimState();
 	/** Notified on every mode change so the host can repaint the indicator + cursor shape. */
 	onModeChange: ((mode: VimMode) => void) | undefined;
 	/** Fired whenever the ex command buffer changes: the full buffer starting with ":"
@@ -111,47 +93,31 @@ export class ModalVimEditor extends CustomEditor implements HostEffects {
 	 * regardless of how many base operations the change ran.
 	 */
 	#history = new History();
-	/** `null` when ex mode is inactive; otherwise the full command buffer starting with `":"`. */
-	#exCommand: string | null = null;
 
 	get mode(): VimMode {
-		return this.#mode;
+		return this.#state.mode;
 	}
 
 	/** Enter a mode and fire {@link onModeChange} when it actually changed. */
 	setMode(mode: VimMode): void {
 		this.#resetPending();
-		if (this.#mode === mode) return;
-		this.#mode = mode;
+		if (this.#state.mode === mode) return;
+		this.#state.mode = mode;
 		this.onModeChange?.(mode);
 	}
 
 	#resetPending(): void {
-		this.#count = "";
-		this.#op = null;
-		this.#textObject = null;
-		this.#charPending = null;
-		this.#replacePending = false;
-		this.#pendingG = false;
+		resetInput(this.#state);
 	}
 
 	/** True when a multi-key command is mid-flight (count/operator/find/etc.). */
 	#hasPending(): boolean {
-		return (
-			this.#count !== "" ||
-			this.#op !== null ||
-			this.#textObject !== null ||
-			this.#charPending !== null ||
-			this.#replacePending ||
-			this.#pendingG
-		);
+		return hasPending(this.#state);
 	}
 
 	/** Resolve and consume the pending count, defaulting to 1. Clamped to a sane ceiling. */
 	#takeCount(): number {
-		const n = this.#count === "" ? 1 : Number.parseInt(this.#count, 10);
-		this.#count = "";
-		return Math.min(Math.max(Number.isFinite(n) ? n : 1, 1), 9999);
+		return takeCount(this.#state);
 	}
 
 	#repeat(seq: string, times: number): void {
@@ -266,7 +232,7 @@ export class ModalVimEditor extends CustomEditor implements HostEffects {
 
 	/** Store `text` in the unnamed register, tagging it charwise or linewise. */
 	#yankToRegister(text: string, linewise: boolean): void {
-		this.#register = { text, linewise };
+		this.#state.registers.set({ text, linewise });
 	}
 
 	/**
@@ -275,7 +241,7 @@ export class ModalVimEditor extends CustomEditor implements HostEffects {
 	 * `inclusive`); otherwise just move the cursor there.
 	 */
 	#applyCharwiseTarget(targetAbs: number, inclusive: boolean): void {
-		if (this.#op === null) {
+		if (this.#state.input.operator === null) {
 			this.#moveToAbs(targetAbs);
 			return;
 		}
@@ -283,7 +249,7 @@ export class ModalVimEditor extends CustomEditor implements HostEffects {
 		let lo = Math.min(cur, targetAbs);
 		let hi = Math.max(cur, targetAbs);
 		if (inclusive) hi += this.#graphemeLenAt(this.getText(), hi);
-		const op = this.#op;
+		const op = this.#state.input.operator;
 		if (op === "y") {
 			// Yank captures charwise and leaves the cursor at the range start
 			// (vim), without touching the buffer.
@@ -392,7 +358,7 @@ export class ModalVimEditor extends CustomEditor implements HostEffects {
 	 * the first pasted line, matching vim.
 	 */
 	#paste(count: number, after: boolean): void {
-		const reg = this.#register;
+		const reg = this.#state.registers.get();
 		if (reg === null || reg.text === "") return;
 
 		if (reg.linewise) {
@@ -486,7 +452,7 @@ export class ModalVimEditor extends CustomEditor implements HostEffects {
 	// --- input handling ----------------------------------------------------
 
 	override handleInput(data: string): void {
-		if (this.#mode === "insert") {
+		if (this.#state.mode === "insert") {
 			// In INSERT mode, Escape is the one key we own: it drops to NORMAL
 			// instead of firing the app interrupt. Everything else is the base
 			// editor unchanged (typing, paste, history, autocomplete, submit).
@@ -511,7 +477,7 @@ export class ModalVimEditor extends CustomEditor implements HostEffects {
 		// EX (execute) mode is a NORMAL sub-state: while a `:` command line is
 		// open, every key edits that buffer, never the draft or the undo timeline
 		// (routed before #beginChange so no undo unit forms).
-		if (this.#exCommand !== null) {
+		if (this.#state.exBuffer !== null) {
 			this.#handleEx(data);
 			return;
 		}
@@ -541,7 +507,7 @@ export class ModalVimEditor extends CustomEditor implements HostEffects {
 		if (this.#isEscape(data)) {
 			// ESC in a VISUAL mode drops the selection and returns to NORMAL
 			// (swallowed — it never reaches the host interrupt).
-			if (this.#mode === "visual" || this.#mode === "visual-line") {
+			if (this.#state.mode === "visual" || this.#state.mode === "visual-line") {
 				this.#exitVisual();
 				return;
 			}
@@ -577,38 +543,38 @@ export class ModalVimEditor extends CustomEditor implements HostEffects {
 		}
 
 		// Digits build a count prefix (a leading 0 is the "line start" motion).
-		if (/^[1-9]$/.test(data) || (data === "0" && this.#count !== "")) {
-			this.#count += data;
+		if (/^[1-9]$/.test(data) || (data === "0" && this.#state.input.count !== "")) {
+			this.#state.input.count += data;
 			return;
 		}
 
-		if (this.#replacePending) {
+		if (this.#state.input.replacePending) {
 			this.#resolveReplace(data);
 			return;
 		}
-		if (this.#charPending !== null) {
+		if (this.#state.input.charPending !== null) {
 			this.#resolveCharFind(data);
 			return;
 		}
-		if (this.#textObject !== null) {
+		if (this.#state.input.textObject !== null) {
 			this.#resolveTextObject(data);
 			return;
 		}
-		if (this.#op !== null) {
+		if (this.#state.input.operator !== null) {
 			this.#handleOperatorKey(data);
 			return;
 		}
-		if (this.#pendingG) {
-			this.#pendingG = false;
-			if (data === "g") this.#gotoLine(this.#count === "" ? 0 : this.#takeCount() - 1);
-			this.#count = "";
+		if (this.#state.input.pendingG) {
+			this.#state.input.pendingG = false;
+			if (data === "g") this.#gotoLine(this.#state.input.count === "" ? 0 : this.#takeCount() - 1);
+			this.#state.input.count = "";
 			return;
 		}
 
 		// In visual modes, non-motion keys (operators, mode toggles, `o` swap) are
 		// consumed here; motions and counts fall through to #handleNormalKey so
 		// the cursor moves and thereby resizes the selection against the anchor.
-		if ((this.#mode === "visual" || this.#mode === "visual-line") && this.#handleVisual(data)) {
+		if ((this.#state.mode === "visual" || this.#state.mode === "visual-line") && this.#handleVisual(data)) {
 			return;
 		}
 
@@ -717,7 +683,7 @@ export class ModalVimEditor extends CustomEditor implements HostEffects {
 			case "F":
 			case "t":
 			case "T":
-				this.#charPending = data;
+				this.#state.input.charPending = data;
 				return;
 			case ";":
 				this.#repeatCharFind(false);
@@ -728,11 +694,11 @@ export class ModalVimEditor extends CustomEditor implements HostEffects {
 
 			// --- buffer jumps ---
 			case "g":
-				this.#pendingG = true;
+				this.#state.input.pendingG = true;
 				return;
 			case "G":
-				this.#gotoLine(this.#count === "" ? this.getLines().length - 1 : this.#takeCount() - 1);
-				this.#count = "";
+				this.#gotoLine(this.#state.input.count === "" ? this.getLines().length - 1 : this.#takeCount() - 1);
+				this.#state.input.count = "";
 				return;
 
 			// --- edits ---
@@ -743,7 +709,7 @@ export class ModalVimEditor extends CustomEditor implements HostEffects {
 				this.#deleteUnderCursor(this.#takeCount());
 				return;
 			case "r":
-				this.#replacePending = true;
+				this.#state.input.replacePending = true;
 				return;
 			case "D":
 				this.#deleteToLineEnd();
@@ -754,17 +720,17 @@ export class ModalVimEditor extends CustomEditor implements HostEffects {
 				this.setMode("insert");
 				return;
 			case "d":
-				this.#op = "d";
+				this.#state.input.operator = "d";
 				return;
 			case "c":
-				this.#op = "c";
+				this.#state.input.operator = "c";
 				return;
 			case "s":
 				this.#deleteUnderCursor(this.#takeCount());
 				this.setMode("insert");
 				return;
 			case "y":
-				this.#op = "y";
+				this.#state.input.operator = "y";
 				return;
 			case "Y": {
 				// `Y` is `yy` in vim: yank the current line (+count-1 below).
@@ -794,24 +760,24 @@ export class ModalVimEditor extends CustomEditor implements HostEffects {
 
 	/** Enter (or switch between) VISUAL / VISUAL-LINE, anchoring at the cursor. */
 	#enterVisual(mode: "visual" | "visual-line"): void {
-		if (this.#mode !== "visual" && this.#mode !== "visual-line") {
+		if (this.#state.mode !== "visual" && this.#state.mode !== "visual-line") {
 			const { line, col } = this.getCursor();
-			this.#visualAnchor = { line, col };
+			this.#state.visualAnchor = { line, col };
 		}
-		this.#count = "";
+		this.#state.input.count = "";
 		this.setMode(mode);
 	}
 
 	/** Drop the selection and return to NORMAL. */
 	#exitVisual(): void {
-		this.#visualAnchor = null;
+		this.#state.visualAnchor = null;
 		this.setMode("normal");
 	}
 
 	/** The anchor, clamped into the current buffer (text may have reflowed). */
 	#getVisualAnchor(): VisualPosition {
 		const cursor = this.getCursor();
-		return clampVisualPosition(this.#visualAnchor ?? cursor, this.getLines());
+		return clampVisualPosition(this.#state.visualAnchor ?? cursor, this.getLines());
 	}
 
 	/** Absolute `[startAbs, endAbs)` span of the inclusive char-wise selection. */
@@ -833,7 +799,7 @@ export class ModalVimEditor extends CustomEditor implements HostEffects {
 	#swapVisualEnds(): void {
 		const anchor = this.#getVisualAnchor();
 		const cursor = this.getCursor();
-		this.#visualAnchor = { line: cursor.line, col: cursor.col };
+		this.#state.visualAnchor = { line: cursor.line, col: cursor.col };
 		this.#moveToAbs(lineColToAbs(this.getLines(), anchor.line, anchor.col));
 	}
 
@@ -843,13 +809,13 @@ export class ModalVimEditor extends CustomEditor implements HostEffects {
 	 * register (leaving the buffer intact). Charwise or whole-line per `linewise`.
 	 */
 	#applyVisualOperator(operator: Operator, linewise: boolean): void {
-		this.#count = "";
+		this.#state.input.count = "";
 		const anchor = this.#getVisualAnchor();
 		const cursor = this.getCursor();
 
 		if (linewise) {
 			const { startLine, endLine } = getVisualLineRange(anchor, cursor);
-			this.#visualAnchor = null;
+			this.#state.visualAnchor = null;
 			this.setMode("normal");
 			if (operator === "c") {
 				// #changeLineRange collapses the lines and enters INSERT itself.
@@ -863,7 +829,7 @@ export class ModalVimEditor extends CustomEditor implements HostEffects {
 		}
 
 		const { startAbs, endAbs } = this.#visualCharwiseRange();
-		this.#visualAnchor = null;
+		this.#state.visualAnchor = null;
 		if (operator === "y") {
 			// Visual charwise yank: capture the span, park at its start, keep buffer.
 			this.#yankToRegister(this.getText().slice(startAbs, endAbs), false);
@@ -882,9 +848,9 @@ export class ModalVimEditor extends CustomEditor implements HostEffects {
 	 */
 	#handleVisual(data: string): boolean {
 		// Let a mid-flight motion prefix (count, `g`, char-find) resolve normally.
-		if (this.#pendingG || this.#charPending !== null) return false;
+		if (this.#state.input.pendingG || this.#state.input.charPending !== null) return false;
 
-		const linewise = this.#mode === "visual-line";
+		const linewise = this.#state.mode === "visual-line";
 		switch (data) {
 			case "v":
 				if (linewise) this.setMode("visual");
@@ -926,9 +892,10 @@ export class ModalVimEditor extends CustomEditor implements HostEffects {
 				// delete would clobber the register with the removed span, so stash
 				// and restore it, then put at the deletion point (`P` semantics:
 				// charwise inserts at the cursor, linewise on a line there).
-				const saved = this.#register;
+				const saved = this.#state.registers.get();
 				this.#applyVisualOperator("d", linewise);
-				this.#register = saved;
+				if (saved !== null) this.#state.registers.set(saved);
+				else this.#state.registers.clear();
 				this.#paste(1, false);
 				return true;
 			}
@@ -942,24 +909,24 @@ export class ModalVimEditor extends CustomEditor implements HostEffects {
 
 	/** Second key after `d`/`c`: a doubled operator (linewise), `i`/`a`, or a motion. */
 	#handleOperatorKey(data: string): void {
-		const op = this.#op;
+		const op = this.#state.input.operator;
 		if (op === null) return;
 
 		// `gg`/`G` as operator motions (`dgg`, `dG`, `cG`): resolved via #gotoLine,
 		// whose operator branch deletes/changes the line range to the target.
-		if (this.#pendingG) {
-			this.#pendingG = false;
-			if (data === "g") this.#gotoLine(this.#count === "" ? 0 : this.#takeCount() - 1);
+		if (this.#state.input.pendingG) {
+			this.#state.input.pendingG = false;
+			if (data === "g") this.#gotoLine(this.#state.input.count === "" ? 0 : this.#takeCount() - 1);
 			else this.#resetPending();
 			return;
 		}
 		if (data === "g") {
-			this.#pendingG = true;
+			this.#state.input.pendingG = true;
 			return;
 		}
 		if (data === "G") {
-			this.#gotoLine(this.#count === "" ? this.getLines().length - 1 : this.#takeCount() - 1);
-			this.#count = "";
+			this.#gotoLine(this.#state.input.count === "" ? this.getLines().length - 1 : this.#takeCount() - 1);
+			this.#state.input.count = "";
 			return;
 		}
 
@@ -977,13 +944,13 @@ export class ModalVimEditor extends CustomEditor implements HostEffects {
 
 		// Text-object introducer.
 		if (data === "i" || data === "a") {
-			this.#textObject = data;
+			this.#state.input.textObject = data;
 			return;
 		}
 
 		// Char-find as an operator motion (`df{char}`, `ct{char}`, …).
 		if (data === "f" || data === "F" || data === "t" || data === "T") {
-			this.#charPending = data;
+			this.#state.input.charPending = data;
 			return;
 		}
 
@@ -1071,20 +1038,20 @@ export class ModalVimEditor extends CustomEditor implements HostEffects {
 	}
 
 	#resolveCharFind(data: string): void {
-		const motion = this.#charPending;
-		this.#charPending = null;
+		const motion = this.#state.input.charPending;
+		this.#state.input.charPending = null;
 		if (motion === null) return;
 		// Ignore modifier/control chunks; a char-find target is a printable char.
 		if (data.length === 0 || data.charCodeAt(0) < 0x20) {
 			this.#resetPending();
 			return;
 		}
-		this.#lastCharMotion = { motion, char: data };
+		this.#state.lastCharMotion = { motion, char: data };
 		this.#applyCharFind(motion, data, this.#takeCount(), false);
 	}
 
 	#repeatCharFind(reverse: boolean): void {
-		const last = this.#lastCharMotion;
+		const last = this.#state.lastCharMotion;
 		if (last === null) return;
 		const motion = reverse ? reverseCharMotion(last.motion) : last.motion;
 		this.#applyCharFind(motion, last.char, this.#takeCount(), true);
@@ -1101,13 +1068,13 @@ export class ModalVimEditor extends CustomEditor implements HostEffects {
 		// Under an operator, forward f/t are end-inclusive (dfx deletes through x);
 		// backward F/T are exclusive of the cursor (dFx deletes [target, cursor)).
 		const forward = motion === "f" || motion === "t";
-		this.#applyCharwiseTarget(lineColToAbs(this.getLines(), line, targetCol), this.#op !== null && forward);
+		this.#applyCharwiseTarget(lineColToAbs(this.getLines(), line, targetCol), this.#state.input.operator !== null && forward);
 	}
 
 	#resolveTextObject(objectKey: string): void {
-		const kind = this.#textObject;
-		const op = this.#op;
-		this.#textObject = null;
+		const kind = this.#state.input.textObject;
+		const op = this.#state.input.operator;
+		this.#state.input.textObject = null;
 		if (kind === null || op === null) {
 			this.#resetPending();
 			return;
@@ -1147,7 +1114,7 @@ export class ModalVimEditor extends CustomEditor implements HostEffects {
 	}
 
 	#resolveReplace(data: string): void {
-		this.#replacePending = false;
+		this.#state.input.replacePending = false;
 		if (data.length === 0 || data.charCodeAt(0) < 0x20) {
 			this.#resetPending();
 			return;
@@ -1162,7 +1129,7 @@ export class ModalVimEditor extends CustomEditor implements HostEffects {
 		this.handleDraftEdit(SEQ.deleteForward);
 		this.insertText(data);
 		this.handleDraftEdit(SEQ.left);
-		this.#count = "";
+		this.#state.input.count = "";
 	}
 
 	#applyParagraphMotion(direction: "forward" | "backward", count: number): void {
@@ -1183,7 +1150,7 @@ export class ModalVimEditor extends CustomEditor implements HostEffects {
 			this.#resetPending();
 			return;
 		}
-		this.#applyCharwiseTarget(result.targetAbs, this.#op !== null);
+		this.#applyCharwiseTarget(result.targetAbs, this.#state.input.operator !== null);
 	}
 
 	#firstNonWsAbs(): number {
@@ -1204,9 +1171,10 @@ export class ModalVimEditor extends CustomEditor implements HostEffects {
 	#gotoLine(lineIndex: number): void {
 		const lines = this.getLines();
 		const target = Math.max(0, Math.min(lineIndex, lines.length - 1));
-		if (this.#op !== null) {
+		const op = this.#state.input.operator;
+		if (op !== null) {
 			const { line } = this.getCursor();
-			this.#applyLinewiseOperator(this.#op, Math.min(line, target), Math.max(line, target));
+			this.#applyLinewiseOperator(op, Math.min(line, target), Math.max(line, target));
 			return;
 		}
 		const text = lines[target] ?? "";
@@ -1236,19 +1204,19 @@ export class ModalVimEditor extends CustomEditor implements HostEffects {
 
 	/** Open the ex command buffer. */
 	#startEx(): void {
-		this.#exCommand = ":";
+		this.#state.exBuffer = ":";
 		this.onExCommandChange?.(":");
 	}
 
 	/** Close the ex command buffer without submitting. */
 	#clearEx(): void {
-		this.#exCommand = null;
+		this.#state.exBuffer = null;
 		this.onExCommandChange?.(null);
 	}
 
 	/** Update the ex command buffer and notify the host. */
 	#setEx(next: string): void {
-		this.#exCommand = next;
+		this.#state.exBuffer = next;
 		this.onExCommandChange?.(next);
 	}
 
@@ -1266,10 +1234,10 @@ export class ModalVimEditor extends CustomEditor implements HostEffects {
 			return;
 		}
 		if (matchesKey(data, "backspace") || data === "\x7f" || data === "\x08") {
-			if (this.#exCommand === ":") {
+			if (this.#state.exBuffer === ":") {
 				this.#clearEx();
 			} else {
-				this.#setEx(this.#exCommand!.slice(0, -1));
+				this.#setEx((this.#state.exBuffer ?? "").slice(0, -1));
 			}
 			return;
 		}
@@ -1280,7 +1248,7 @@ export class ModalVimEditor extends CustomEditor implements HostEffects {
 			const raw = endMarker === -1 ? data.slice(startIdx) : data.slice(startIdx, endMarker);
 			const nlIdx = raw.search(/[\r\n]/);
 			const firstLine = nlIdx === -1 ? raw : raw.slice(0, nlIdx);
-			this.#setEx(this.#exCommand! + firstLine);
+			this.#setEx((this.#state.exBuffer ?? "") + firstLine);
 			return;
 		}
 		// Non-printable control chunk not handled above: bail out of ex mode.
@@ -1289,7 +1257,7 @@ export class ModalVimEditor extends CustomEditor implements HostEffects {
 			return;
 		}
 		// Printable character: append to buffer.
-		this.#setEx(this.#exCommand! + data);
+		this.#setEx((this.#state.exBuffer ?? "") + data);
 	}
 
 	/**
@@ -1298,7 +1266,7 @@ export class ModalVimEditor extends CustomEditor implements HostEffects {
 	 * because it is omp-side bookkeeping, not vim logic.
 	 */
 	#submitEx(): void {
-		const raw = (this.#exCommand ?? "").slice(1); // strip leading ":"
+		const raw = (this.#state.exBuffer ?? "").slice(1); // strip leading ":"
 		this.#clearEx();
 		const parse = parseExLine(raw);
 		if (parse.kind === "empty") return;
@@ -1420,7 +1388,7 @@ export class ModalVimEditor extends CustomEditor implements HostEffects {
 
 	/** Update the ex command buffer and fire `onExCommandChange`. */
 	signalEx(buffer: string | null): void {
-		this.#exCommand = buffer;
+		this.#state.exBuffer = buffer;
 		this.onExCommandChange?.(buffer);
 	}
 
