@@ -25,6 +25,7 @@ import {
 	clampVisualPosition,
 	type VisualPosition,
 } from "./vim/visual.js";
+import { History, type Snapshot } from "./host/history.js";
 
 export type VimMode = "normal" | "insert" | "visual" | "visual-line";
 
@@ -48,13 +49,6 @@ const SEQ = {
 const GRAPHEME_WINDOW = 16;
 
 type Operator = "d" | "c" | "y";
-
-/** One point on pi-vim's own undo/redo timeline: the full buffer text plus the
- * cursor to restore it to. */
-type EditSnapshot = { text: string; line: number; col: number };
-
-/** Cap on each history stack so a long session can't grow it without bound. */
-const MAX_HISTORY = 500;
 
 /**
  * A {@link CustomEditor} that adds Vim NORMAL/INSERT modal editing to omp's
@@ -111,10 +105,7 @@ export class ModalVimEditor extends CustomEditor {
 	 * restore via `setText`, so one `u` / `Ctrl+r` moves one whole vim command
 	 * regardless of how many base operations the change ran.
 	 */
-	#undoStack: EditSnapshot[] = [];
-	#redoStack: EditSnapshot[] = [];
-	/** Snapshot taken when the current change began, pending commit once it ends. */
-	#pendingSnapshot: EditSnapshot | null = null;
+	#history = new History();
 	/** `null` when ex mode is inactive; otherwise the full command buffer starting with `":"`. */
 	#exCommand: string | null = null;
 
@@ -174,7 +165,7 @@ export class ModalVimEditor extends CustomEditor {
 
 	// --- undo / redo (pi-vim owns its own timeline) ------------------------
 
-	#snapshot(): EditSnapshot {
+	#snapshot(): Snapshot {
 		const { line, col } = this.getCursor();
 		return { text: this.getText(), line, col };
 	}
@@ -185,7 +176,7 @@ export class ModalVimEditor extends CustomEditor {
 	 * already open, so an insert session (many keystrokes) collapses to one unit.
 	 */
 	#beginChange(): void {
-		if (this.#pendingSnapshot === null) this.#pendingSnapshot = this.#snapshot();
+		this.#history.begin(this.getText(), this.getCursor());
 	}
 
 	/**
@@ -195,40 +186,33 @@ export class ModalVimEditor extends CustomEditor {
 	 * and no-op edits leave the timeline untouched.
 	 */
 	#commitChange(): void {
-		const before = this.#pendingSnapshot;
-		this.#pendingSnapshot = null;
-		if (before === null || before.text === this.getText()) return;
-		this.#undoStack.push(before);
-		if (this.#undoStack.length > MAX_HISTORY) this.#undoStack.shift();
-		this.#redoStack.length = 0;
+		this.#history.commit(this.getText());
 	}
 
 	/** Restore the buffer to `snap` (text + cursor) via the base editor's public API. */
-	#restore(snap: EditSnapshot): void {
+	#restore(snap: Snapshot): void {
 		this.setText(snap.text);
 		this.#moveToAbs(lineColToAbs(this.getLines(), snap.line, snap.col));
 	}
 
 	/** `u`: revert the last committed change and stash the current state for redo. */
 	#undo(count: number): void {
-		// This command drives the stacks directly; drop the snapshot the dispatch
+		// This command drives the stacks directly; cancel the snapshot the dispatch
 		// wrapper opened so the trailing #commitChange is a no-op.
-		this.#pendingSnapshot = null;
+		this.#history.cancelPending();
 		for (let i = 0; i < count; i++) {
-			const prev = this.#undoStack.pop();
-			if (prev === undefined) return;
-			this.#redoStack.push(this.#snapshot());
+			const prev = this.#history.undo(this.#snapshot());
+			if (prev === null) return;
 			this.#restore(prev);
 		}
 	}
 
 	/** `Ctrl+r`: reapply the last undone change. */
 	#redo(count: number): void {
-		this.#pendingSnapshot = null;
+		this.#history.cancelPending();
 		for (let i = 0; i < count; i++) {
-			const next = this.#redoStack.pop();
-			if (next === undefined) return;
-			this.#undoStack.push(this.#snapshot());
+			const next = this.#history.redo(this.#snapshot());
+			if (next === null) return;
 			this.#restore(next);
 		}
 	}
