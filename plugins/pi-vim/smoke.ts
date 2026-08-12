@@ -852,5 +852,166 @@ function typeEx(ed: ModalVimEditor, s: string): void {
 	check("widget reverts to mode label", (widget.render(20)[0] ?? "").includes("NORMAL"), true);
 }
 
+// --- yank / paste (registers) -------------------------------------------
+
+// 62. yw then p pastes the word after the cursor (charwise).
+{
+	const { ed } = newEditor();
+	type(ed, "foo bar");
+	ed.handleInput(ESC);
+	ed.handleInput("0"); // on 'f'
+	ed.handleInput("y");
+	ed.handleInput("w"); // yank "foo " (word + trailing space), cursor back at 0
+	check("yw parks cursor at range start", ed.getCursor().col, 0);
+	ed.handleInput("$"); // to last char 'r'
+	ed.handleInput("p"); // paste "foo " after 'r'
+	check("p pastes charwise after cursor", ed.getText(), "foo barfoo ");
+}
+
+// 63. yiw + P pastes the inner word before the cursor (cursor stays at col 0
+// after yiw, where P-before-cursor is unambiguous).
+{
+	const { ed } = newEditor();
+	type(ed, "alpha beta");
+	ed.handleInput(ESC);
+	ed.handleInput("0"); // on 'a'
+	ed.handleInput("y");
+	ed.handleInput("i");
+	ed.handleInput("w"); // yank "alpha", cursor back at col 0
+	ed.handleInput("P"); // paste "alpha" before cursor
+	check("yiw then P pastes before cursor", ed.getText(), "alphaalpha beta");
+}
+
+// 64. yy then p opens a new line below with the yanked line.
+{
+	const { ed } = newEditor();
+	type(ed, "one\ntwo");
+	ed.handleInput(ESC);
+	ed.handleInput("g");
+	ed.handleInput("g"); // line 0 "one"
+	ed.handleInput("y");
+	ed.handleInput("y"); // yank line "one" linewise
+	ed.handleInput("p"); // paste below line 0
+	check("yy then p duplicates line below", ed.getText(), "one\none\ntwo");
+}
+
+// 65. yy then P opens a new line above with the yanked line.
+{
+	const { ed } = newEditor();
+	type(ed, "one\ntwo");
+	ed.handleInput(ESC);
+	ed.handleInput("g");
+	ed.handleInput("g");
+	ed.handleInput("y");
+	ed.handleInput("y");
+	ed.handleInput("P"); // paste above line 0
+	check("yy then P duplicates line above", ed.getText(), "one\none\ntwo");
+}
+
+// 66. dd then p pastes the deleted line below (delete fills the register).
+{
+	const { ed } = newEditor();
+	type(ed, "a\nb\nc");
+	ed.handleInput(ESC);
+	ed.handleInput("g");
+	ed.handleInput("g"); // line 0 "a"
+	ed.handleInput("d");
+	ed.handleInput("d"); // delete "a" -> "b\nc", cursor on "b"
+	check("dd removed the line", ed.getText(), "b\nc");
+	ed.handleInput("p"); // paste "a" below "b"
+	check("dd then p pastes deleted line below", ed.getText(), "b\na\nc");
+}
+
+// 67. x then p transposes characters (charwise register from x).
+{
+	const { ed } = newEditor();
+	type(ed, "ab");
+	ed.handleInput(ESC);
+	ed.handleInput("0"); // on 'a'
+	ed.handleInput("x"); // delete 'a' -> "b", register="a", cursor on 'b'
+	ed.handleInput("p"); // paste 'a' after 'b'
+	check("x then p transposes", ed.getText(), "ba");
+}
+
+// 68. Count with p pastes the register multiple times (charwise).
+{
+	const { ed } = newEditor();
+	type(ed, "xy");
+	ed.handleInput(ESC);
+	ed.handleInput("0"); // on 'x'
+	ed.handleInput("x"); // register "x", buffer "y", cursor on 'y'
+	ed.handleInput("3");
+	ed.handleInput("p"); // paste "x" three times after 'y'
+	check("3p pastes register three times", ed.getText(), "yxxx");
+}
+
+// 69. Linewise paste leaves the cursor on the first pasted line.
+{
+	const { ed } = newEditor();
+	type(ed, "one\ntwo");
+	ed.handleInput(ESC);
+	ed.handleInput("g");
+	ed.handleInput("g"); // line 0
+	ed.handleInput("y");
+	ed.handleInput("y");
+	ed.handleInput("j"); // to line 1 "two"
+	ed.handleInput("p"); // paste "one" below line 1
+	check("linewise p below target", ed.getText(), "one\ntwo\none");
+	check("linewise p cursor on pasted line", ed.getCursor().line, 2);
+}
+
+// 70. Visual charwise y then p pastes the selection.
+{
+	const { ed } = newEditor();
+	type(ed, "hello");
+	ed.handleInput(ESC);
+	ed.handleInput("0"); // on 'h'
+	ed.handleInput("v");
+	ed.handleInput("l"); // select "he"
+	ed.handleInput("y"); // yank "he", back to normal at range start
+	check("visual y returns to normal", ed.mode, "normal");
+	ed.handleInput("$"); // on last 'o'
+	ed.handleInput("p"); // paste "he" after 'o'
+	check("visual y then p pastes selection", ed.getText(), "hellohe");
+}
+
+// 71. Visual-line Y yanks whole lines; p duplicates below.
+{
+	const { ed } = newEditor();
+	type(ed, "aa\nbb");
+	ed.handleInput(ESC);
+	ed.handleInput("g");
+	ed.handleInput("g"); // line 0
+	ed.handleInput("V"); // visual-line
+	ed.handleInput("y"); // yank line "aa" linewise
+	check("visual-line y returns to normal", ed.mode, "normal");
+	ed.handleInput("p"); // paste below line 0
+	check("visual-line y then p", ed.getText(), "aa\naa\nbb");
+}
+
+// 72. Yanking does not disturb a later undo of a real edit.
+{
+	const { ed } = newEditor();
+	type(ed, "word");
+	ed.handleInput(ESC);
+	ed.handleInput("0");
+	ed.handleInput("y");
+	ed.handleInput("w"); // pure yank: no buffer change
+	ed.handleInput("x"); // delete 'w' -> "ord"
+	check("edit after yank applied", ed.getText(), "ord");
+	ed.handleInput("u"); // undo the x only
+	check("undo after yank reverts the edit", ed.getText(), "word");
+}
+
+// 73. p with an empty register is a no-op.
+{
+	const { ed } = newEditor();
+	type(ed, "abc");
+	ed.handleInput(ESC);
+	ed.handleInput("0");
+	ed.handleInput("p"); // nothing yanked yet
+	check("p with empty register is a no-op", ed.getText(), "abc");
+}
+
 console.log(failures === 0 ? "\nALL PASS" : `\n${failures} FAILURE(S)`);
 process.exit(failures === 0 ? 0 : 1);

@@ -67,6 +67,9 @@ Motions accept a `{count}` prefix (e.g. `3j`, `12l`).
 | `D` `C` | Delete / change to end of line |
 | `d{motion}` `c{motion}` | Operator + any motion above (`dw`, `d$`, `df.`, `d%`, `dj`, …) |
 | `d{i,a}{obj}` `c{i,a}{obj}` | Text objects `w W " ' \`\` ( ) [ ] { } b B` (`ci"`, `daw`, `di(`) |
+| `yy` `Y` `{count}yy` | Yank whole line(s) into the unnamed register |
+| `y{motion}` `y{i,a}{obj}` | Yank a range / text object (`yw`, `y$`, `yiw`, `ya"`, `yj`) |
+| `p` `P` `{count}p` | Paste after / before the cursor (charwise inline, linewise on new line(s)) |
 | `u` `{count}u` | Undo the last edit(s) |
 | `Ctrl+r` `{count}Ctrl+r` | Redo the last undone edit(s) |
 
@@ -85,8 +88,10 @@ moves the other end. Both ends are inclusive.
 | --- | --- |
 | motions | Resize the selection (cursor end moves) |
 | `o` | Swap which end of the selection is active |
-| `d` `x` | Delete the selection → NORMAL |
-| `c` `s` | Delete the selection → INSERT |
+| `d` `x` | Delete the selection (into the register) → NORMAL |
+| `c` `s` | Delete the selection (into the register) → INSERT |
+| `y` `Y` | Yank the selection into the register → NORMAL |
+| `p` `P` | Replace the selection with the register |
 | `V` (in `v`) / `v` (in `V`) | Switch charwise ↔ linewise |
 | `Esc` | Cancel the selection → NORMAL |
 
@@ -99,8 +104,8 @@ moves the other end. Both ends are inclusive.
 > operator (`d`, `c`, …) applies to anchor→cursor. Upstream `lajarre/pi-vim` is
 > the same — its own renderer only syncs the cursor shape and mode label.
 
-Yank/paste is not yet available (pi-vim has no registers), so `y` is inert in
-VISUAL mode for now.
+Deletes, changes, and yanks all fill vim's unnamed register, so `dd`/`yy` then
+`p`, visual `y` then `p`, and `x` then `p` (transpose) all work.
 
 ## EX (execute) mode
 
@@ -160,8 +165,9 @@ bun run smoke       # headless mode/motion checks
 ## Scope
 
 NORMAL, INSERT, VISUAL, and VISUAL-LINE modes plus an EX command line, with
-motions, char-find, paragraph and matching-pair motions, `d`/`c` operators,
-text objects, visual selections, `u` / `Ctrl+r` undo/redo, and `:` command
-dispatch. Not implemented: registers / yank / paste and `.` repeat. See
+motions, char-find, paragraph and matching-pair motions, `d`/`c`/`y` operators,
+text objects, visual selections, yank/paste through vim's unnamed register,
+`u` / `Ctrl+r` undo/redo, and `:` command dispatch. Not implemented: named
+registers, the system clipboard, and `.` repeat. See
 [`lajarre/pi-vim`](https://github.com/lajarre/pi-vim) (upstream Pi) for the
 full-featured equivalent this borrows its motion logic from.

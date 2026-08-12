@@ -47,7 +47,7 @@ const SEQ = {
  * safe upper bound for measuring the cluster that starts at an offset. */
 const GRAPHEME_WINDOW = 16;
 
-type Operator = "d" | "c";
+type Operator = "d" | "c" | "y";
 
 /** One point on pi-vim's own undo/redo timeline: the full buffer text plus the
  * cursor to restore it to. */
@@ -85,6 +85,12 @@ export class ModalVimEditor extends CustomEditor {
 	#lastCharMotion: { motion: CharMotion; char: string } | null = null;
 	/** Where `v`/`V` was pressed; the fixed end of the live visual selection. */
 	#visualAnchor: VisualPosition | null = null;
+	/**
+	 * Vim's unnamed register: the last yanked/deleted/changed text plus whether
+	 * it was captured linewise. `p`/`P` read it; a linewise payload pastes on its
+	 * own line(s), a charwise one inline. `null` means nothing has been captured.
+	 */
+	#register: { text: string; linewise: boolean } | null = null;
 	/** Notified on every mode change so the host can repaint the indicator + cursor shape. */
 	onModeChange: ((mode: VimMode) => void) | undefined;
 	/** Fired whenever the ex command buffer changes: the full buffer starting with ":"
@@ -280,9 +286,18 @@ export class ModalVimEditor extends CustomEditor {
 	 */
 	#deleteAbsRange(lo: number, hi: number): void {
 		if (hi <= lo) return;
+		// Deletes fill the unnamed register (vim: `d`/`c`/`x`/`s` all yank what
+		// they remove). Charwise here; linewise callers overwrite via
+		// #yankToRegister after the delete. Paste never routes through here.
+		this.#yankToRegister(this.getText().slice(lo, hi), false);
 		const n = graphemeCount(this.getText().slice(lo, hi));
 		this.#moveToAbs(lo);
 		this.#repeat(SEQ.deleteForward, n);
+	}
+
+	/** Store `text` in the unnamed register, tagging it charwise or linewise. */
+	#yankToRegister(text: string, linewise: boolean): void {
+		this.#register = { text, linewise };
 	}
 
 	/**
@@ -300,6 +315,14 @@ export class ModalVimEditor extends CustomEditor {
 		let hi = Math.max(cur, targetAbs);
 		if (inclusive) hi += this.#graphemeLenAt(this.getText(), hi);
 		const op = this.#op;
+		if (op === "y") {
+			// Yank captures charwise and leaves the cursor at the range start
+			// (vim), without touching the buffer.
+			this.#yankToRegister(this.getText().slice(lo, hi), false);
+			this.#moveToAbs(lo);
+			this.#resetPending();
+			return;
+		}
 		this.#deleteAbsRange(lo, hi);
 		if (op === "c") this.setMode("insert");
 		else this.#resetPending();
@@ -326,7 +349,12 @@ export class ModalVimEditor extends CustomEditor {
 			lo = 0;
 			hi = lineColToAbs(lines, e, (lines[e] ?? "").length);
 		}
+		// Capture the payload from the intact lines, but write the register only
+		// AFTER the delete: #deleteAbsRange makes its own charwise capture, so
+		// writing first would be clobbered. `p` then pastes it on its own line(s).
+		const payload = `${lines.slice(s, e + 1).join("\n")}\n`;
 		this.#deleteAbsRange(lo, hi);
+		this.#yankToRegister(payload, true);
 	}
 
 	/**
@@ -342,8 +370,90 @@ export class ModalVimEditor extends CustomEditor {
 		const e = Math.max(s, Math.min(endLine, last));
 		const lo = lineColToAbs(lines, s, 0);
 		const hi = lineColToAbs(lines, e, (lines[e] ?? "").length);
+		// `cc`/`cj` capture the changed lines linewise. Write the register after
+		// the delete so #deleteAbsRange's charwise capture doesn't clobber it.
+		const payload = `${lines.slice(s, e + 1).join("\n")}\n`;
 		this.#deleteAbsRange(lo, hi);
+		this.#yankToRegister(payload, true);
 		this.setMode("insert");
+	}
+
+	/**
+	 * Vim `yy`/`Y`/`{count}yy`/`yj`: capture whole lines `[startLine, endLine]`
+	 * linewise into the register and park the cursor at the start of the range
+	 * (its first non-blank), without touching the buffer.
+	 */
+	#yankLineRange(startLine: number, endLine: number): void {
+		const lines = this.getLines();
+		const last = lines.length - 1;
+		const s = Math.max(0, Math.min(startLine, last));
+		const e = Math.max(s, Math.min(endLine, last));
+		this.#yankToRegister(`${lines.slice(s, e + 1).join("\n")}\n`, true);
+		// Park at the first non-blank of the range start. Move directly (not via
+		// #gotoLine, which is operator-aware and would re-enter this yank while
+		// #op is still "y").
+		const text = lines[s] ?? "";
+		const col = isBlankLine(text) ? 0 : findFirstNonWhitespaceColumn(text);
+		this.#moveToAbs(lineColToAbs(lines, s, col));
+	}
+
+	/**
+	 * Dispatch a linewise operator (`d`/`c`/`y`) over lines `[top, bottom]`,
+	 * resetting pending state as vim does (`d`/`y` return to NORMAL; `c` enters
+	 * INSERT, handled by {@link #changeLineRange}). Shared by `dd`/`cc`/`yy`,
+	 * `dj`/`ck`/`yj`, and `dgg`/`dG`.
+	 */
+	#applyLinewiseOperator(op: Operator, top: number, bottom: number): void {
+		if (op === "d") {
+			this.#deleteLineRange(top, bottom);
+			this.#resetPending();
+		} else if (op === "c") {
+			this.#changeLineRange(top, bottom);
+		} else {
+			this.#yankLineRange(top, bottom);
+			this.#resetPending();
+		}
+	}
+
+	/**
+	 * Vim `p`/`P`: paste the unnamed register `count` times. `after` selects `p`
+	 * (charwise: after the cursor grapheme; linewise: on new line(s) below) vs
+	 * `P` (charwise: before the cursor; linewise: line(s) above). Charwise leaves
+	 * the cursor on the last pasted grapheme; linewise on the first non-blank of
+	 * the first pasted line, matching vim.
+	 */
+	#paste(count: number, after: boolean): void {
+		const reg = this.#register;
+		if (reg === null || reg.text === "") return;
+
+		if (reg.linewise) {
+			const content = reg.text.endsWith("\n") ? reg.text.slice(0, -1) : reg.text;
+			const block = Array.from({ length: count }, () => content).join("\n");
+			const { line } = this.getCursor();
+			if (after) {
+				this.moveToLineEnd();
+				this.insertText(`\n${block}`);
+				this.#gotoLine(line + 1);
+			} else {
+				this.moveToLineStart();
+				this.insertText(`${block}\n`);
+				this.#gotoLine(line);
+			}
+			return;
+		}
+
+		const text = reg.text.repeat(count);
+		const curAbs = this.#curAbs();
+		const { line } = this.getCursor();
+		const onNonEmptyLine = (this.getLines()[line] ?? "").length > 0;
+		// `p` inserts after the grapheme under the cursor (unless the line is
+		// empty); `P` inserts at the cursor. Vim then rests on the last pasted
+		// grapheme, so step back one from the paste end.
+		const insertAbs = after && onNonEmptyLine ? curAbs + this.#graphemeLenAt(this.getText(), curAbs) : curAbs;
+		this.#moveToAbs(insertAbs);
+		this.insertText(text);
+		this.#moveToAbs(insertAbs + text.length);
+		this.handleDraftEdit(SEQ.left);
 	}
 
 	// --- motion target computation (drives the pure functions) -------------
@@ -684,6 +794,22 @@ export class ModalVimEditor extends CustomEditor {
 				this.#deleteUnderCursor(this.#takeCount());
 				this.setMode("insert");
 				return;
+			case "y":
+				this.#op = "y";
+				return;
+			case "Y": {
+				// `Y` is `yy` in vim: yank the current line (+count-1 below).
+				const count = this.#takeCount();
+				const { line } = this.getCursor();
+				this.#yankLineRange(line, line + count - 1);
+				return;
+			}
+			case "p":
+				this.#paste(this.#takeCount(), true);
+				return;
+			case "P":
+				this.#paste(this.#takeCount(), false);
+				return;
 
 			case ":":
 				this.#startEx();
@@ -743,11 +869,11 @@ export class ModalVimEditor extends CustomEditor {
 	}
 
 	/**
-	 * Apply an operator to the live selection, then leave visual mode. `d`/`c`
-	 * delete the span (charwise or whole lines); `c` also enters INSERT. Yank is
-	 * out of scope until pi-vim has registers.
+	 * Apply an operator to the live selection, then leave visual mode. `d`
+	 * deletes the span, `c` deletes and enters INSERT, `y` yanks it into the
+	 * register (leaving the buffer intact). Charwise or whole-line per `linewise`.
 	 */
-	#applyVisualOperator(operator: "d" | "c", linewise: boolean): void {
+	#applyVisualOperator(operator: Operator, linewise: boolean): void {
 		this.#count = "";
 		const anchor = this.#getVisualAnchor();
 		const cursor = this.getCursor();
@@ -755,19 +881,27 @@ export class ModalVimEditor extends CustomEditor {
 		if (linewise) {
 			const { startLine, endLine } = getVisualLineRange(anchor, cursor);
 			this.#visualAnchor = null;
+			this.setMode("normal");
 			if (operator === "c") {
 				// #changeLineRange collapses the lines and enters INSERT itself.
-				this.setMode("normal");
 				this.#changeLineRange(startLine, endLine);
-				return;
+			} else if (operator === "y") {
+				this.#yankLineRange(startLine, endLine);
+			} else {
+				this.#deleteLineRange(startLine, endLine);
 			}
-			this.setMode("normal");
-			this.#deleteLineRange(startLine, endLine);
 			return;
 		}
 
 		const { startAbs, endAbs } = this.#visualCharwiseRange();
 		this.#visualAnchor = null;
+		if (operator === "y") {
+			// Visual charwise yank: capture the span, park at its start, keep buffer.
+			this.#yankToRegister(this.getText().slice(startAbs, endAbs), false);
+			this.setMode("normal");
+			this.#moveToAbs(startAbs);
+			return;
+		}
 		this.setMode(operator === "c" ? "insert" : "normal");
 		this.#deleteAbsRange(startAbs, endAbs);
 	}
@@ -811,6 +945,24 @@ export class ModalVimEditor extends CustomEditor {
 			case "S":
 				this.#applyVisualOperator("c", true);
 				return true;
+			case "y":
+				this.#applyVisualOperator("y", linewise);
+				return true;
+			case "Y":
+				this.#applyVisualOperator("y", true);
+				return true;
+			case "p":
+			case "P": {
+				// Visual paste replaces the selection with the register (vim). The
+				// delete would clobber the register with the removed span, so stash
+				// and restore it, then put at the deletion point (`P` semantics:
+				// charwise inserts at the cursor, linewise on a line there).
+				const saved = this.#register;
+				this.#applyVisualOperator("d", linewise);
+				this.#register = saved;
+				this.#paste(1, false);
+				return true;
+			}
 			case ":":
 				return true;
 
@@ -842,16 +994,15 @@ export class ModalVimEditor extends CustomEditor {
 			return;
 		}
 
-		// `dd` / `cc`: linewise on the current line (+count-1 lines below).
-		if ((op === "d" && data === "d") || (op === "c" && data === "c")) {
+		// `dd` / `cc` / `yy`: linewise on the current line (+count-1 lines below).
+		if (
+			(op === "d" && data === "d") ||
+			(op === "c" && data === "c") ||
+			(op === "y" && data === "y")
+		) {
 			const count = this.#takeCount();
 			const { line } = this.getCursor();
-			if (op === "d") {
-				this.#deleteLineRange(line, line + count - 1);
-				this.#resetPending();
-			} else {
-				this.#changeLineRange(line, line + count - 1);
-			}
+			this.#applyLinewiseOperator(op, line, line + count - 1);
 			return;
 		}
 
@@ -867,19 +1018,12 @@ export class ModalVimEditor extends CustomEditor {
 			return;
 		}
 
-		// Linewise vertical operator motions (`dj`/`dk`, `cj`/`ck`).
+		// Linewise vertical operator motions (`dj`/`dk`, `cj`/`ck`, `yj`/`yk`).
 		if (data === "j" || data === "k") {
 			const count = this.#takeCount();
 			const { line } = this.getCursor();
 			const other = data === "j" ? line + count : line - count;
-			const top = Math.min(line, other);
-			const bottom = Math.max(line, other);
-			if (op === "d") {
-				this.#deleteLineRange(top, bottom);
-				this.#resetPending();
-			} else {
-				this.#changeLineRange(top, bottom);
-			}
+			this.#applyLinewiseOperator(op, Math.min(line, other), Math.max(line, other));
 			return;
 		}
 
@@ -905,11 +1049,12 @@ export class ModalVimEditor extends CustomEditor {
 			case "E":
 				this.#applyCharwiseTarget(this.#wordTargetAbs("forward", "end", "WORD", this.#takeCount()), true);
 				return;
-			case "$":
-				this.#deleteToLineEnd();
-				if (op === "c") this.setMode("insert");
-				else this.#resetPending();
+			case "$": {
+				const { line } = this.getCursor();
+				const end = (this.getLines()[line] ?? "").length;
+				this.#applyCharwiseTarget(lineColToAbs(this.getLines(), line, end), false);
 				return;
+			}
 			case "0": {
 				const { line } = this.getCursor();
 				this.#applyCharwiseTarget(lineColToAbs(this.getLines(), line, 0), false);
@@ -921,11 +1066,16 @@ export class ModalVimEditor extends CustomEditor {
 			case "%":
 				this.#applyMatchingPair();
 				return;
-			case "l":
-				this.#deleteUnderCursor(this.#takeCount());
-				if (op === "c") this.setMode("insert");
-				else this.#resetPending();
+			case "l": {
+				const { line, col } = this.getCursor();
+				const text = this.getLines()[line] ?? "";
+				let end = col;
+				for (let i = 0; i < this.#takeCount() && end < text.length; i++) {
+					end += this.#graphemeLenAt(text, end);
+				}
+				this.#applyCharwiseTarget(lineColToAbs(this.getLines(), line, end), false);
 				return;
+			}
 			default:
 				// Unknown motion cancels the operator, vim-style.
 				this.#resetPending();
@@ -1014,6 +1164,14 @@ export class ModalVimEditor extends CustomEditor {
 			this.#resetPending();
 			return;
 		}
+		if (op === "y") {
+			// Text-object yank captures charwise and parks the cursor at the
+			// object's start (`yiw`, `ya"`, …).
+			this.#yankToRegister(this.getText().slice(range.startAbs, range.endAbs), false);
+			this.#moveToAbs(range.startAbs);
+			this.#resetPending();
+			return;
+		}
 		this.#deleteAbsRange(range.startAbs, range.endAbs);
 		if (op === "c") this.setMode("insert");
 		else this.#resetPending();
@@ -1078,16 +1236,8 @@ export class ModalVimEditor extends CustomEditor {
 		const lines = this.getLines();
 		const target = Math.max(0, Math.min(lineIndex, lines.length - 1));
 		if (this.#op !== null) {
-			const op = this.#op;
 			const { line } = this.getCursor();
-			const top = Math.min(line, target);
-			const bottom = Math.max(line, target);
-			if (op === "d") {
-				this.#deleteLineRange(top, bottom);
-				this.#resetPending();
-			} else {
-				this.#changeLineRange(top, bottom);
-			}
+			this.#applyLinewiseOperator(this.#op, Math.min(line, target), Math.max(line, target));
 			return;
 		}
 		const text = lines[target] ?? "";
