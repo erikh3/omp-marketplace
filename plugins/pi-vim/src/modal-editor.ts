@@ -18,8 +18,15 @@ import {
 	type TextObjectKind,
 } from "./vim/text-objects.js";
 import type { CharMotion } from "./vim/types.js";
+import {
+	getVisualLineRange,
+	getInclusiveEndColumn,
+	orderVisualEndpoints,
+	clampVisualPosition,
+	type VisualPosition,
+} from "./vim/visual.js";
 
-export type VimMode = "normal" | "insert";
+export type VimMode = "normal" | "insert" | "visual" | "visual-line";
 
 /**
  * Raw terminal byte sequences replayed into the base editor. NORMAL-mode
@@ -76,6 +83,8 @@ export class ModalVimEditor extends CustomEditor {
 	#pendingG = false;
 	/** Last `f`/`F`/`t`/`T` for `;` / `,` repeat. */
 	#lastCharMotion: { motion: CharMotion; char: string } | null = null;
+	/** Where `v`/`V` was pressed; the fixed end of the live visual selection. */
+	#visualAnchor: VisualPosition | null = null;
 	/** Notified on every mode change so the host can repaint the indicator + cursor shape. */
 	onModeChange: ((mode: VimMode) => void) | undefined;
 	/**
@@ -420,6 +429,12 @@ export class ModalVimEditor extends CustomEditor {
 		const canonical = parsed !== undefined ? canonicalKeyId(parsed) : undefined;
 
 		if (this.#isEscape(data)) {
+			// ESC in a VISUAL mode drops the selection and returns to NORMAL
+			// (swallowed — it never reaches the host interrupt).
+			if (this.#mode === "visual" || this.#mode === "visual-line") {
+				this.#exitVisual();
+				return;
+			}
 			// ESC in NORMAL cancels an in-flight command (count/operator/find/…)
 			// and is swallowed. With nothing pending it is a no-op for the buffer,
 			// so we forward it to the host — this is what lets a second ESC (after
@@ -480,6 +495,13 @@ export class ModalVimEditor extends CustomEditor {
 			return;
 		}
 
+		// In visual modes, non-motion keys (operators, mode toggles, `o` swap) are
+		// consumed here; motions and counts fall through to #handleNormalKey so
+		// the cursor moves and thereby resizes the selection against the anchor.
+		if ((this.#mode === "visual" || this.#mode === "visual-line") && this.#handleVisual(data)) {
+			return;
+		}
+
 		this.#handleNormalKey(data);
 	}
 
@@ -512,6 +534,14 @@ export class ModalVimEditor extends CustomEditor {
 				this.insertText("\n");
 				this.handleDraftEdit(SEQ.up);
 				this.setMode("insert");
+				return;
+
+			// --- enter VISUAL / VISUAL-LINE ---
+			case "v":
+				this.#enterVisual("visual");
+				return;
+			case "V":
+				this.#enterVisual("visual-line");
 				return;
 
 			// --- simple motions (key replay is already grapheme-correct) ---
@@ -627,6 +657,127 @@ export class ModalVimEditor extends CustomEditor {
 			default:
 				// Swallow every other key: NORMAL mode must never leak text.
 				return;
+		}
+	}
+
+	// --- visual mode --------------------------------------------------------
+
+	/** Enter (or switch between) VISUAL / VISUAL-LINE, anchoring at the cursor. */
+	#enterVisual(mode: "visual" | "visual-line"): void {
+		if (this.#mode !== "visual" && this.#mode !== "visual-line") {
+			const { line, col } = this.getCursor();
+			this.#visualAnchor = { line, col };
+		}
+		this.#count = "";
+		this.setMode(mode);
+	}
+
+	/** Drop the selection and return to NORMAL. */
+	#exitVisual(): void {
+		this.#visualAnchor = null;
+		this.setMode("normal");
+	}
+
+	/** The anchor, clamped into the current buffer (text may have reflowed). */
+	#getVisualAnchor(): VisualPosition {
+		const cursor = this.getCursor();
+		return clampVisualPosition(this.#visualAnchor ?? cursor, this.getLines());
+	}
+
+	/** Absolute `[startAbs, endAbs)` span of the inclusive char-wise selection. */
+	#visualCharwiseRange(): { startAbs: number; endAbs: number } {
+		const lines = this.getLines();
+		const { start, end } = orderVisualEndpoints(this.#getVisualAnchor(), this.getCursor());
+		const endLine = lines[end.line] ?? "";
+		const includesNewline = end.col >= endLine.length && end.line < lines.length - 1;
+		return {
+			startAbs: lineColToAbs(lines, start.line, start.col),
+			endAbs:
+				lineColToAbs(lines, end.line, 0) +
+				getInclusiveEndColumn(endLine, end.col) +
+				(includesNewline ? 1 : 0),
+		};
+	}
+
+	/** Swap anchor and cursor so the other end of the selection moves (`o`). */
+	#swapVisualEnds(): void {
+		const anchor = this.#getVisualAnchor();
+		const cursor = this.getCursor();
+		this.#visualAnchor = { line: cursor.line, col: cursor.col };
+		this.#moveToAbs(lineColToAbs(this.getLines(), anchor.line, anchor.col));
+	}
+
+	/**
+	 * Apply an operator to the live selection, then leave visual mode. `d`/`c`
+	 * delete the span (charwise or whole lines); `c` also enters INSERT. Yank is
+	 * out of scope until pi-vim has registers.
+	 */
+	#applyVisualOperator(operator: "d" | "c", linewise: boolean): void {
+		this.#count = "";
+		const anchor = this.#getVisualAnchor();
+		const cursor = this.getCursor();
+
+		if (linewise) {
+			const { startLine, endLine } = getVisualLineRange(anchor, cursor);
+			this.#visualAnchor = null;
+			if (operator === "c") {
+				// #changeLineRange collapses the lines and enters INSERT itself.
+				this.setMode("normal");
+				this.#changeLineRange(startLine, endLine);
+				return;
+			}
+			this.setMode("normal");
+			this.#deleteLineRange(startLine, endLine);
+			return;
+		}
+
+		const { startAbs, endAbs } = this.#visualCharwiseRange();
+		this.#visualAnchor = null;
+		this.setMode(operator === "c" ? "insert" : "normal");
+		this.#deleteAbsRange(startAbs, endAbs);
+	}
+
+	/**
+	 * Non-motion visual keys. Returns true when consumed; motions and counts
+	 * return false so they fall through to normal dispatch and resize the
+	 * selection by moving the cursor.
+	 */
+	#handleVisual(data: string): boolean {
+		// Let a mid-flight motion prefix (count, `g`, char-find) resolve normally.
+		if (this.#pendingG || this.#charPending !== null) return false;
+
+		const linewise = this.#mode === "visual-line";
+		switch (data) {
+			case "v":
+				if (linewise) this.setMode("visual");
+				else this.#exitVisual();
+				return true;
+			case "V":
+				if (linewise) this.#exitVisual();
+				else this.setMode("visual-line");
+				return true;
+			case "o":
+			case "O":
+				this.#swapVisualEnds();
+				return true;
+			case "d":
+			case "x":
+				this.#applyVisualOperator("d", linewise);
+				return true;
+			case "c":
+			case "s":
+				this.#applyVisualOperator("c", linewise);
+				return true;
+			case "D":
+			case "X":
+				this.#applyVisualOperator("d", true);
+				return true;
+			case "C":
+			case "S":
+				this.#applyVisualOperator("c", true);
+				return true;
+			default:
+				return false;
 		}
 	}
 

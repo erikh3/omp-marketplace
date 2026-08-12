@@ -1,9 +1,9 @@
 # pi-vim
 
 Vim-style modal editing in the omp prompt box. `Esc` drops the prompt into
-NORMAL mode for motions and edits; `i`/`a`/`o`/… return to INSERT. INSERT mode
-is the stock omp editor, unchanged (typing, paste, history, autocomplete,
-submit).
+NORMAL mode for motions and edits; `i`/`a`/`o`/… return to INSERT; `v`/`V`
+start a VISUAL selection. INSERT mode is the stock omp editor, unchanged
+(typing, paste, history, autocomplete, submit).
 
 ## Install
 
@@ -23,8 +23,9 @@ omp plugin link ./plugins/pi-vim
 ## Modes
 
 The active mode shows as a right-aligned indicator below the editor
-(`NORMAL` / `INSERT`, like Pi's TUI) and, on terminals that honor DECSCUSR, as
-a steady block (NORMAL) or blinking bar (INSERT) cursor.
+(`NORMAL` / `INSERT` / `VISUAL` / `V-LINE`, like Pi's TUI) and, on terminals
+that honor DECSCUSR, as a steady block (NORMAL and VISUAL) or blinking bar
+(INSERT) cursor.
 
 | From | Key | Action |
 | --- | --- | --- |
@@ -35,6 +36,10 @@ a steady block (NORMAL) or blinking bar (INSERT) cursor.
 | NORMAL | `A` | Insert at line end |
 | NORMAL | `o` | Open line below + insert |
 | NORMAL | `O` | Open line above + insert |
+| NORMAL | `v` | → VISUAL (charwise) |
+| NORMAL | `V` | → VISUAL-LINE (linewise) |
+| VISUAL | `Esc` / `v` | → NORMAL |
+| VISUAL-LINE | `Esc` / `V` | → NORMAL |
 
 ## NORMAL-mode keys
 
@@ -63,6 +68,24 @@ Motions accept a `{count}` prefix (e.g. `3j`, `12l`).
 external editor, …) pass through untouched — except `Ctrl+r`, which is claimed
 for vim redo. Any unmapped printable key in NORMAL mode is swallowed, so it
 never leaks into the draft.
+
+## VISUAL-mode keys
+
+`v` starts a charwise selection, `V` a linewise one; the anchor stays put while
+any NORMAL motion (`h`/`l`/`j`/`k`, `w`/`b`/`e`, `f{char}`, `%`, `gg`/`G`, …)
+moves the other end. Both ends are inclusive.
+
+| Key | Action |
+| --- | --- |
+| motions | Resize the selection (cursor end moves) |
+| `o` | Swap which end of the selection is active |
+| `d` `x` | Delete the selection → NORMAL |
+| `c` `s` | Delete the selection → INSERT |
+| `V` (in `v`) / `v` (in `V`) | Switch charwise ↔ linewise |
+| `Esc` | Cancel the selection → NORMAL |
+
+Yank/paste is not yet available (pi-vim has no registers), so `y` is inert in
+VISUAL mode for now.
 
 ## How it works
 
@@ -99,8 +122,9 @@ bun run smoke       # headless mode/motion checks
 
 ## Scope
 
-NORMAL and INSERT modes with motions, char-find, paragraph and matching-pair
-motions, `d`/`c` operators, text objects, and `u` / `Ctrl+r` undo/redo. Not
-implemented: VISUAL mode, an ex line (`:`), registers / yank / paste, and `.`
-repeat. See [`lajarre/pi-vim`](https://github.com/lajarre/pi-vim) (upstream Pi)
-for the full-featured equivalent this borrows its motion logic from.
+NORMAL, INSERT, VISUAL, and VISUAL-LINE modes with motions, char-find,
+paragraph and matching-pair motions, `d`/`c` operators, text objects, visual
+selections, and `u` / `Ctrl+r` undo/redo. Not implemented: an ex line (`:`),
+registers / yank / paste, and `.` repeat. See
+[`lajarre/pi-vim`](https://github.com/lajarre/pi-vim) (upstream Pi) for the
+full-featured equivalent this borrows its motion logic from.

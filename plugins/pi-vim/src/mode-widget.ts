@@ -3,6 +3,14 @@ import type { Component } from "@oh-my-pi/pi-tui";
 import { visibleWidth } from "@oh-my-pi/pi-tui";
 import type { VimMode } from "./modal-editor.js";
 
+/** Footer label per mode; VISUAL-LINE shows as vim's short `V-LINE`. */
+const LABELS: Record<VimMode, string> = {
+	normal: "NORMAL",
+	insert: "INSERT",
+	visual: "VISUAL",
+	"visual-line": "V-LINE",
+};
+
 /**
  * A one-line widget mounted below the editor that shows the active Vim mode,
  * right-aligned like Pi's TUI (and most editors). The label is pushed to the
@@ -29,13 +37,13 @@ export class ModeWidget implements Component {
 
 	render(width: number): readonly string[] {
 		if (this.#cached && this.#cachedWidth === width) return this.#cached;
-		const label = ` ${this.#mode.toUpperCase()} `;
-		// NORMAL uses an accent inverse block; INSERT stays muted so it reads as
-		// the resting state. `\x1b[7m` is reverse-video for the block look.
+		const label = ` ${LABELS[this.#mode]} `;
+		// NORMAL and the VISUAL modes use an accent inverse block (`\x1b[7m` is
+		// reverse-video); INSERT stays muted so it reads as the resting state.
 		const styled =
-			this.#mode === "normal"
-				? this.#theme.fg("accent", `\x1b[7m${label}\x1b[27m`)
-				: this.#theme.fg("muted", label);
+			this.#mode === "insert"
+				? this.#theme.fg("muted", label)
+				: this.#theme.fg("accent", `\x1b[7m${label}\x1b[27m`);
 		const pad = Math.max(0, width - visibleWidth(styled));
 		this.#cached = [" ".repeat(pad) + styled];
 		this.#cachedWidth = width;

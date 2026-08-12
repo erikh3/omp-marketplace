@@ -2,10 +2,12 @@ import type { ExtensionAPI } from "@oh-my-pi/pi-coding-agent";
 import { ModalVimEditor, type VimMode } from "./modal-editor.js";
 import { ModeWidget } from "./mode-widget.js";
 
-/** DECSCUSR cursor shapes: steady block for NORMAL, blinking bar for INSERT. */
+/** DECSCUSR cursor shapes: steady block for NORMAL/VISUAL, blinking bar for INSERT. */
 const CURSOR_SHAPE: Record<VimMode, string> = {
 	normal: "\x1b[2 q",
 	insert: "\x1b[5 q",
+	visual: "\x1b[2 q",
+	"visual-line": "\x1b[2 q",
 };
 
 const WIDGET_KEY = "pi-vim-mode";

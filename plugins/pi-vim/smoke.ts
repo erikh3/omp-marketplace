@@ -168,6 +168,10 @@ function check(name: string, actual: unknown, expected: unknown): void {
 	widget.setMode("normal");
 	const normalLine = widget.render(20)[0] ?? "";
 	check("widget switches to NORMAL", normalLine.includes("NORMAL"), true);
+	widget.setMode("visual");
+	check("widget shows VISUAL", (widget.render(20)[0] ?? "").includes(" VISUAL "), true);
+	widget.setMode("visual-line");
+	check("widget shows V-LINE", (widget.render(20)[0] ?? "").includes(" V-LINE "), true);
 }
 
 // 12. Word motions e/b and operator cw.
@@ -553,6 +557,105 @@ function check(name: string, actual: unknown, expected: unknown): void {
 	ed.handleInput("\x12"); // -> "w2 w3"
 	ed.handleInput("\x12"); // -> "w3"
 	check("two redos walk forward", ed.getText(), "w3");
+}
+
+// 40. v enters VISUAL; Esc exits back to NORMAL.
+{
+	const { ed, modes } = newEditor();
+	type(ed, "hello");
+	ed.handleInput(ESC);
+	ed.handleInput("0");
+	ed.handleInput("v");
+	check("v enters visual", ed.mode, "visual");
+	ed.handleInput(ESC);
+	check("esc exits visual to normal", ed.mode, "normal");
+	void modes;
+}
+
+// 41. v + motion + d deletes the inclusive selection.
+{
+	const { ed } = newEditor();
+	type(ed, "hello world");
+	ed.handleInput(ESC);
+	ed.handleInput("0"); // on 'h'
+	ed.handleInput("v"); // anchor at col 0
+	ed.handleInput("l");
+	ed.handleInput("l"); // cursor at col 2 ('l'); selection covers h,e,l
+	ed.handleInput("d"); // delete "hel" inclusive
+	check("visual d deletes inclusive span", ed.getText(), "lo world");
+	check("visual d returns to normal", ed.mode, "normal");
+}
+
+// 42. visual c deletes the span and enters INSERT.
+{
+	const { ed } = newEditor();
+	type(ed, "abcdef");
+	ed.handleInput(ESC);
+	ed.handleInput("0"); // on 'a'
+	ed.handleInput("v");
+	ed.handleInput("l");
+	ed.handleInput("l"); // select a,b,c
+	ed.handleInput("c"); // change
+	check("visual c enters insert", ed.mode, "insert");
+	type(ed, "X");
+	check("visual c replaced span", ed.getText(), "Xdef");
+}
+
+// 43. V (visual-line) + d deletes the whole line.
+{
+	const { ed } = newEditor();
+	type(ed, "one\ntwo\nthree");
+	ed.handleInput(ESC);
+	ed.handleInput("g");
+	ed.handleInput("g"); // line 0
+	ed.handleInput("V"); // visual-line
+	check("V enters visual-line", ed.mode, "visual-line");
+	ed.handleInput("d"); // delete line 0
+	check("visual-line d deletes line", ed.getText(), "two\nthree");
+}
+
+// 44. V + j extends over two lines, then d deletes both.
+{
+	const { ed } = newEditor();
+	type(ed, "a\nb\nc\nd");
+	ed.handleInput(ESC);
+	ed.handleInput("g");
+	ed.handleInput("g"); // line 0
+	ed.handleInput("V");
+	ed.handleInput("j"); // extend to line 1
+	ed.handleInput("d"); // delete lines 0..1
+	check("visual-line extends and deletes", ed.getText(), "c\nd");
+}
+
+// 45. A whole visual delete undoes as one unit.
+{
+	const { ed } = newEditor();
+	type(ed, "hello world");
+	ed.handleInput(ESC);
+	ed.handleInput("0");
+	ed.handleInput("v");
+	ed.handleInput("e"); // select "hello"
+	ed.handleInput("d"); // -> " world"
+	check("visual d deleted word", ed.getText(), " world");
+	ed.handleInput("u"); // one undo restores it
+	check("u restores whole visual delete", ed.getText(), "hello world");
+}
+
+// 46. o swaps the selection ends so the other end moves.
+{
+	const { ed } = newEditor();
+	type(ed, "abcdef");
+	ed.handleInput(ESC);
+	ed.handleInput("0"); // on 'a'
+	ed.handleInput("l");
+	ed.handleInput("l"); // on 'c' (col 2)
+	ed.handleInput("v"); // anchor at col 2
+	ed.handleInput("l"); // cursor col 3 ('d'); selection c,d
+	ed.handleInput("o"); // swap: cursor now at col 2, anchor col 3
+	check("o moved cursor to anchor start", ed.getCursor().col, 2);
+	ed.handleInput("h"); // extend left; cursor col 1 ('b')
+	ed.handleInput("d"); // selection now b,c,d -> delete
+	check("o then extend deletes correct span", ed.getText(), "aef");
 }
 
 console.log(failures === 0 ? "\nALL PASS" : `\n${failures} FAILURE(S)`);
