@@ -407,5 +407,125 @@ function check(name: string, actual: unknown, expected: unknown): void {
 	check("u restores whole 3x", ed.getText(), "abcdef");
 }
 
+// 31. dd + u restores the whole line in one undo (multi-line linewise).
+{
+	const { ed } = newEditor();
+	type(ed, "one\ntwo\nthree");
+	ed.handleInput(ESC);
+	ed.handleInput("g");
+	ed.handleInput("g"); // line 0
+	ed.handleInput("d");
+	ed.handleInput("d"); // delete "one\n" -> "two\nthree"
+	check("dd removed the line", ed.getText(), "two\nthree");
+	ed.handleInput("u"); // single undo restores it whole
+	check("u restores whole dd", ed.getText(), "one\ntwo\nthree");
+}
+
+// 32. 2dd + u restores both lines in one undo.
+{
+	const { ed } = newEditor();
+	type(ed, "a\nb\nc\nd");
+	ed.handleInput(ESC);
+	ed.handleInput("g");
+	ed.handleInput("g");
+	ed.handleInput("2");
+	ed.handleInput("d");
+	ed.handleInput("d"); // delete lines 0..1 -> "c\nd"
+	check("2dd removed two lines", ed.getText(), "c\nd");
+	ed.handleInput("u");
+	check("u restores whole 2dd", ed.getText(), "a\nb\nc\nd");
+}
+
+// 33. dj + u restores both lines in one undo (multi-line motion).
+{
+	const { ed } = newEditor();
+	type(ed, "l1\nl2\nl3");
+	ed.handleInput(ESC);
+	ed.handleInput("g");
+	ed.handleInput("g"); // line 0
+	ed.handleInput("d");
+	ed.handleInput("j"); // delete lines 0..1 -> "l3"
+	check("dj removed two lines", ed.getText(), "l3");
+	ed.handleInput("u");
+	check("u restores whole dj", ed.getText(), "l1\nl2\nl3");
+}
+
+// 34. dG + u restores the tail in one undo.
+{
+	const { ed } = newEditor();
+	type(ed, "a\nb\nc");
+	ed.handleInput(ESC);
+	ed.handleInput("g");
+	ed.handleInput("g"); // line 0
+	ed.handleInput("j"); // line 1
+	ed.handleInput("d");
+	ed.handleInput("G"); // delete lines 1..2 -> "a"
+	check("dG removed the tail", ed.getText(), "a");
+	ed.handleInput("u");
+	check("u restores whole dG", ed.getText(), "a\nb\nc");
+}
+
+// 35. Ctrl+r redoes an undone change.
+{
+	const { ed } = newEditor();
+	type(ed, "hello world");
+	ed.handleInput(ESC);
+	ed.handleInput("0");
+	ed.handleInput("d");
+	ed.handleInput("w"); // -> "world"
+	check("dw deleted first word", ed.getText(), "world");
+	ed.handleInput("u"); // -> "hello world"
+	check("u undid the delete", ed.getText(), "hello world");
+	ed.handleInput("\x12"); // Ctrl+r redo -> "world"
+	check("ctrl+r redid the delete", ed.getText(), "world");
+}
+
+// 36. A new edit after undo clears the redo stack (vim semantics).
+{
+	const { ed } = newEditor();
+	type(ed, "abcdef");
+	ed.handleInput(ESC);
+	ed.handleInput("0");
+	ed.handleInput("x"); // -> "bcdef"
+	ed.handleInput("u"); // -> "abcdef"
+	ed.handleInput("x"); // new edit -> "bcdef" (redo of the first x is now gone)
+	ed.handleInput("\x12"); // Ctrl+r: nothing to redo
+	check("new edit clears redo", ed.getText(), "bcdef");
+}
+
+// 37. An insert session is one undo unit (o + typed text + Esc).
+{
+	const { ed } = newEditor();
+	type(ed, "top");
+	ed.handleInput(ESC);
+	ed.handleInput("o"); // open line below, INSERT
+	type(ed, "added");
+	ed.handleInput(ESC);
+	check("o added a line", ed.getText(), "top\nadded");
+	ed.handleInput("u"); // one undo reverts the whole open+insert
+	check("u reverts whole insert session", ed.getText(), "top");
+	ed.handleInput("\x12"); // redo restores it
+	check("ctrl+r restores insert session", ed.getText(), "top\nadded");
+}
+
+// 38. multi-step undo/redo walks the timeline in order.
+{
+	const { ed } = newEditor();
+	type(ed, "w1 w2 w3");
+	ed.handleInput(ESC);
+	ed.handleInput("0");
+	ed.handleInput("d");
+	ed.handleInput("w"); // -> "w2 w3"
+	ed.handleInput("d");
+	ed.handleInput("w"); // -> "w3"
+	check("two dw edits", ed.getText(), "w3");
+	ed.handleInput("u"); // -> "w2 w3"
+	ed.handleInput("u"); // -> "w1 w2 w3"
+	check("two undos walk back", ed.getText(), "w1 w2 w3");
+	ed.handleInput("\x12"); // -> "w2 w3"
+	ed.handleInput("\x12"); // -> "w3"
+	check("two redos walk forward", ed.getText(), "w3");
+}
+
 console.log(failures === 0 ? "\nALL PASS" : `\n${failures} FAILURE(S)`);
 process.exit(failures === 0 ? 0 : 1);

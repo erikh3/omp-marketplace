@@ -57,10 +57,12 @@ Motions accept a `{count}` prefix (e.g. `3j`, `12l`).
 | `d{motion}` `c{motion}` | Operator + any motion above (`dw`, `d$`, `df.`, `d%`, `dj`, …) |
 | `d{i,a}{obj}` `c{i,a}{obj}` | Text objects `w W " ' \`\` ( ) [ ] { } b B` (`ci"`, `daw`, `di(`) |
 | `u` `{count}u` | Undo the last edit(s) |
+| `Ctrl+r` `{count}Ctrl+r` | Redo the last undone edit(s) |
 
 `Enter` still submits from NORMAL mode, and modified app chords (model cycle,
-history search, external editor, …) pass through untouched. Any unmapped
-printable key in NORMAL mode is swallowed, so it never leaks into the draft.
+external editor, …) pass through untouched — except `Ctrl+r`, which is claimed
+for vim redo. Any unmapped printable key in NORMAL mode is swallowed, so it
+never leaks into the draft.
 
 ## How it works
 
@@ -73,8 +75,15 @@ as buffer offsets with pure, nvim-parity functions vendored from
 the cursor to each target by replaying the editor's own arrow/delete key
 sequences through `handleDraftEdit(...)`. `src/vim/bridge.ts` converts between
 UTF-16 offsets and grapheme-step key counts, so line wrapping, grapheme
-boundaries, undo, and autocomplete dismissal all stay owned by the base editor.
-On `session_shutdown` the default editor is restored.
+boundaries, and autocomplete dismissal all stay owned by the base editor. On
+`session_shutdown` the default editor is restored.
+
+Undo/redo is owned by pi-vim, not the base editor: the base `#applyUndo` pops
+without capturing the replaced state (so it cannot redo) and snapshots once per
+delete *call* (so a multi-key edit would undo one grapheme at a time). Instead
+the editor snapshots the whole buffer before each change and restores via
+`setText`, so one `u` / `Ctrl+r` moves one whole vim command — including
+multi-line `dd` / `dj` / `dG` and a full insert session — as a single step.
 
 The vendored files under `src/vim/` are copied verbatim (MIT) and are not
 edited in place; refresh them by re-vendoring from upstream.
@@ -90,7 +99,7 @@ bun run smoke       # headless mode/motion checks
 ## Scope
 
 NORMAL and INSERT modes with motions, char-find, paragraph and matching-pair
-motions, `d`/`c` operators, text objects, and `u` undo. Not implemented: VISUAL
-mode, an ex line (`:`), registers / yank / paste, `.` repeat, and `Ctrl+r`
-redo. See [`lajarre/pi-vim`](https://github.com/lajarre/pi-vim) (upstream Pi)
+motions, `d`/`c` operators, text objects, and `u` / `Ctrl+r` undo/redo. Not
+implemented: VISUAL mode, an ex line (`:`), registers / yank / paste, and `.`
+repeat. See [`lajarre/pi-vim`](https://github.com/lajarre/pi-vim) (upstream Pi)
 for the full-featured equivalent this borrows its motion logic from.

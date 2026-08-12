@@ -34,7 +34,6 @@ const SEQ = {
 	up: "\x1b[A",
 	down: "\x1b[B",
 	deleteForward: "\x1b[3~", // forward delete
-	undo: "\x1f", // ctrl+_ (tui.editor.undo)
 } as const;
 
 /** Any single grapheme is at most a handful of UTF-16 units; this window is a
@@ -42,6 +41,13 @@ const SEQ = {
 const GRAPHEME_WINDOW = 16;
 
 type Operator = "d" | "c";
+
+/** One point on pi-vim's own undo/redo timeline: the full buffer text plus the
+ * cursor to restore it to. */
+type EditSnapshot = { text: string; line: number; col: number };
+
+/** Cap on each history stack so a long session can't grow it without bound. */
+const MAX_HISTORY = 500;
 
 /**
  * A {@link CustomEditor} that adds Vim NORMAL/INSERT modal editing to omp's
@@ -72,6 +78,18 @@ export class ModalVimEditor extends CustomEditor {
 	#lastCharMotion: { motion: CharMotion; char: string } | null = null;
 	/** Notified on every mode change so the host can repaint the indicator + cursor shape. */
 	onModeChange: ((mode: VimMode) => void) | undefined;
+	/**
+	 * pi-vim owns its own undo/redo timeline instead of the base editor's, whose
+	 * `#applyUndo` pops without capturing the replaced state (so it cannot redo)
+	 * and which snapshots once per delete *call* (so a multi-key edit undoes one
+	 * grapheme at a time). We snapshot the whole buffer before each change and
+	 * restore via `setText`, so one `u` / `Ctrl+r` moves one whole vim command
+	 * regardless of how many base operations the change ran.
+	 */
+	#undoStack: EditSnapshot[] = [];
+	#redoStack: EditSnapshot[] = [];
+	/** Snapshot taken when the current change began, pending commit once it ends. */
+	#pendingSnapshot: EditSnapshot | null = null;
 
 	get mode(): VimMode {
 		return this.#mode;
@@ -103,6 +121,67 @@ export class ModalVimEditor extends CustomEditor {
 
 	#repeat(seq: string, times: number): void {
 		for (let i = 0; i < times; i++) this.handleDraftEdit(seq);
+	}
+
+	// --- undo / redo (pi-vim owns its own timeline) ------------------------
+
+	#snapshot(): EditSnapshot {
+		const { line, col } = this.getCursor();
+		return { text: this.getText(), line, col };
+	}
+
+	/**
+	 * Mark the start of a change: record the pre-edit buffer so a later
+	 * {@link #commitChange} can push it onto the undo stack. No-op if a change is
+	 * already open, so an insert session (many keystrokes) collapses to one unit.
+	 */
+	#beginChange(): void {
+		if (this.#pendingSnapshot === null) this.#pendingSnapshot = this.#snapshot();
+	}
+
+	/**
+	 * Close the change opened by {@link #beginChange}. Pushes the pre-edit
+	 * snapshot onto the undo stack (clearing the redo stack, as any new edit
+	 * does in vim) only when the buffer text actually changed, so pure motions
+	 * and no-op edits leave the timeline untouched.
+	 */
+	#commitChange(): void {
+		const before = this.#pendingSnapshot;
+		this.#pendingSnapshot = null;
+		if (before === null || before.text === this.getText()) return;
+		this.#undoStack.push(before);
+		if (this.#undoStack.length > MAX_HISTORY) this.#undoStack.shift();
+		this.#redoStack.length = 0;
+	}
+
+	/** Restore the buffer to `snap` (text + cursor) via the base editor's public API. */
+	#restore(snap: EditSnapshot): void {
+		this.setText(snap.text);
+		this.#moveToAbs(lineColToAbs(this.getLines(), snap.line, snap.col));
+	}
+
+	/** `u`: revert the last committed change and stash the current state for redo. */
+	#undo(count: number): void {
+		// This command drives the stacks directly; drop the snapshot the dispatch
+		// wrapper opened so the trailing #commitChange is a no-op.
+		this.#pendingSnapshot = null;
+		for (let i = 0; i < count; i++) {
+			const prev = this.#undoStack.pop();
+			if (prev === undefined) return;
+			this.#redoStack.push(this.#snapshot());
+			this.#restore(prev);
+		}
+	}
+
+	/** `Ctrl+r`: reapply the last undone change. */
+	#redo(count: number): void {
+		this.#pendingSnapshot = null;
+		for (let i = 0; i < count; i++) {
+			const next = this.#redoStack.pop();
+			if (next === undefined) return;
+			this.#undoStack.push(this.#snapshot());
+			this.#restore(next);
+		}
 	}
 
 	// --- driving primitives (offset -> key replay) -------------------------
@@ -148,28 +227,14 @@ export class ModalVimEditor extends CustomEditor {
 	}
 
 	/**
-	 * Delete the half-open buffer range `[lo, hi)`.
-	 *
-	 * The base editor records one undo snapshot per delete *call*, so replaying
-	 * N forward-delete keys would make `u` peel the deletion back one grapheme at
-	 * a time. For a single-line range we instead position at `hi` and call
-	 * `deleteBeforeCursor(hi - lo)`, which snapshots undo once and removes the
-	 * whole span as a single change — so one `u` restores the whole `dw`/`de`/
-	 * `df`/`x`/text-object edit, matching vim. `lo`/`hi` are grapheme-aligned
-	 * offsets, so deleting exactly `hi - lo` code units removes whole graphemes.
-	 *
-	 * A range that crosses a line boundary falls back to key replay: no public
-	 * API deletes across newlines as one undo unit (`setText` would wipe the undo
-	 * stack), so multi-line linewise edits (`dd`, `dj`, `dG`) stay multi-step.
+	 * Delete the half-open buffer range `[lo, hi)` by replaying forward-delete
+	 * keys from `lo`. Undo granularity is not a concern here: every edit runs
+	 * inside a {@link #beginChange}/{@link #commitChange} pair, so the whole
+	 * command is one entry on pi-vim's own undo timeline no matter how many base
+	 * deletes it issues. `lo`/`hi` are grapheme-aligned offsets.
 	 */
 	#deleteAbsRange(lo: number, hi: number): void {
 		if (hi <= lo) return;
-		const lines = this.getLines();
-		if (absToLineCol(lines, lo).line === absToLineCol(lines, hi).line) {
-			this.#moveToAbs(hi);
-			this.deleteBeforeCursor(hi - lo);
-			return;
-		}
 		const n = graphemeCount(this.getText().slice(lo, hi));
 		this.#moveToAbs(lo);
 		this.#repeat(SEQ.deleteForward, n);
@@ -303,6 +368,10 @@ export class ModalVimEditor extends CustomEditor {
 			// editor unchanged (typing, paste, history, autocomplete, submit).
 			if (this.#isEscape(data)) {
 				this.setMode("normal");
+				// Close the insert session opened when we entered INSERT, so the
+				// whole session (plus any preceding operator delete, e.g. `cw`) is
+				// one undo unit.
+				this.#commitChange();
 				// Vim rests the NORMAL cursor ON a character, not past the last
 				// one, so leaving INSERT steps left one grapheme (unless already
 				// at column 0). This keeps `x`, `$`, and backward finds aligned.
@@ -312,7 +381,12 @@ export class ModalVimEditor extends CustomEditor {
 			super.handleInput(data);
 			return;
 		}
+		// NORMAL command: snapshot the buffer, dispatch, then commit — unless the
+		// command opened an insert session (mode is now "insert"), in which case
+		// the commit is deferred to the Escape above so delete+insert coalesce.
+		this.#beginChange();
 		this.#handleNormal(data);
+		if (this.#mode === "normal") this.#commitChange();
 	}
 
 	#isEscape(data: string): boolean {
@@ -334,9 +408,17 @@ export class ModalVimEditor extends CustomEditor {
 			return;
 		}
 
-		// Modified chords (ctrl+p model cycle, ctrl+r history, …) and Enter
-		// (submit) fall through to the base handler. A bare `shift+<letter>` is
-		// still text-like, so it is handled by the key table below.
+		// `Ctrl+r` is vim redo — claim it before the app-chord passthrough (where
+		// it would otherwise reach the host's history search).
+		if (canonical === "ctrl+r") {
+			this.#redo(this.#takeCount());
+			this.#resetPending();
+			return;
+		}
+
+		// Modified chords (ctrl+p model cycle, … ) and Enter (submit) fall through
+		// to the base handler. A bare `shift+<letter>` is still text-like, so it
+		// is handled by the key table below.
 		const isAppChord =
 			canonical !== undefined && canonical.includes("+") && !canonical.startsWith("shift+");
 		if (canonical === "enter" || data === "\r" || data === "\n" || isAppChord) {
@@ -491,7 +573,7 @@ export class ModalVimEditor extends CustomEditor {
 
 			// --- edits ---
 			case "u":
-				this.#repeat(SEQ.undo, this.#takeCount());
+				this.#undo(this.#takeCount());
 				return;
 			case "x":
 				this.#deleteUnderCursor(this.#takeCount());
