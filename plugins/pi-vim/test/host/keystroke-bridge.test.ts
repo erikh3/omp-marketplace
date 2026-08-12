@@ -4,7 +4,13 @@ import {
   absToLineCol,
   graphemeCount,
   graphemeSteps,
-} from "../../src/vim/bridge.ts";
+} from "../../src/host/keystroke-bridge.ts";
+import {
+  EMOJI,
+  CJK,
+  COMBINING,
+  MULTILINE,
+} from "../support/fixtures.ts";
 
 // ---------------------------------------------------------------------------
 // lineColToAbs
@@ -213,5 +219,117 @@ describe("graphemeSteps", () => {
     expect(graphemeSteps("a😀b", 0, 3)).toBe(2);
     // col 0 to col 4 = a + emoji + b = 3 steps
     expect(graphemeSteps("a😀b", 0, 4)).toBe(3);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Unicode coordinate round-trip tests (new: over shared fixture lines)
+// ---------------------------------------------------------------------------
+// These tests characterize the *existing* behavior of lineColToAbs/absToLineCol
+// over unicode grapheme clusters.  They assert that for every valid (line, col)
+// position in these fixture buffers, absToLineCol(lineColToAbs(…)) is the
+// identity and graphemeSteps measures the cluster width correctly.
+// ---------------------------------------------------------------------------
+
+describe("unicode round-trip: EMOJI fixture", () => {
+  // EMOJI = "a👨‍👩‍👧b🎉c"
+  // The ZWJ family sequence 👨‍👩‍👧 is multiple UTF-16 code units / codepoints joined
+  // by zero-width joiners; graphemeCount treats it as one cluster.
+  const lines = [EMOJI];
+
+  test("absToLineCol(lineColToAbs(0, col)) === col for every col in EMOJI", () => {
+    for (let col = 0; col <= EMOJI.length; col++) {
+      const abs = lineColToAbs(lines, 0, col);
+      const back = absToLineCol(lines, abs);
+      expect(back).toEqual({ line: 0, col });
+    }
+  });
+
+  test("graphemeCount of EMOJI line reports correct cluster count", () => {
+    // a + 👨‍👩‍👧 + b + 🎉 + c = 5 grapheme clusters
+    expect(graphemeCount(EMOJI)).toBe(5);
+  });
+
+  test("graphemeSteps for ZWJ family cluster: col 1 to beyond cluster → 1 step", () => {
+    // The ZWJ family starts at col 1. It is one cluster regardless of how many
+    // UTF-16 code units it occupies.
+    const familyLen = EMOJI.indexOf("b") - 1; // from col 1 to start of 'b'
+    expect(graphemeSteps(EMOJI, 1, 1 + familyLen)).toBe(1);
+  });
+
+  test("graphemeSteps from col 0 to end of EMOJI line = 5 steps", () => {
+    expect(graphemeSteps(EMOJI, 0, EMOJI.length)).toBe(5);
+  });
+});
+
+describe("unicode round-trip: COMBINING fixture", () => {
+  // COMBINING = "e\u0301fg" — 'é' as base + combining accent, then 'f', 'g'
+  const lines = [COMBINING];
+
+  test("absToLineCol(lineColToAbs(0, col)) === col for every col in COMBINING", () => {
+    for (let col = 0; col <= COMBINING.length; col++) {
+      const abs = lineColToAbs(lines, 0, col);
+      const back = absToLineCol(lines, abs);
+      expect(back).toEqual({ line: 0, col });
+    }
+  });
+
+  test("graphemeCount of COMBINING = 3 clusters (é, f, g)", () => {
+    // "e\u0301" is 2 UTF-16 units but 1 grapheme cluster
+    expect(graphemeCount(COMBINING)).toBe(3);
+  });
+
+  test("graphemeSteps col 0 to col 2 = 1 step (the é cluster)", () => {
+    // combining accent is at col 1; the whole cluster span is [0,2)
+    expect(graphemeSteps(COMBINING, 0, 2)).toBe(1);
+  });
+
+  test("graphemeSteps col 0 to end = 3 steps", () => {
+    expect(graphemeSteps(COMBINING, 0, COMBINING.length)).toBe(3);
+  });
+});
+
+describe("unicode round-trip: CJK fixture", () => {
+  // CJK = "日本語 テスト です"
+  const lines = [CJK];
+
+  test("absToLineCol(lineColToAbs(0, col)) === col for every col in CJK", () => {
+    for (let col = 0; col <= CJK.length; col++) {
+      const abs = lineColToAbs(lines, 0, col);
+      const back = absToLineCol(lines, abs);
+      expect(back).toEqual({ line: 0, col });
+    }
+  });
+
+  test("graphemeCount of CJK line = char count (all BMP)", () => {
+    // CJK chars are single UTF-16 units, so grapheme count = string length
+    expect(graphemeCount(CJK)).toBe(CJK.length);
+  });
+
+  test("graphemeSteps col 0 to end = CJK.length steps", () => {
+    expect(graphemeSteps(CJK, 0, CJK.length)).toBe(CJK.length);
+  });
+});
+
+describe("unicode round-trip: MULTILINE fixture", () => {
+  // MULTILINE = "first line\nsecond line\nthird line"
+  const lines = MULTILINE.split("\n");
+
+  test("every (line, col) position round-trips via abs", () => {
+    for (let l = 0; l < lines.length; l++) {
+      for (let c = 0; c <= (lines[l]?.length ?? 0); c++) {
+        const abs = lineColToAbs(lines, l, c);
+        expect(absToLineCol(lines, abs)).toEqual({ line: l, col: c });
+      }
+    }
+  });
+
+  test("lineColToAbs of line starts equals cumulative offsets", () => {
+    // line 0 starts at abs 0
+    expect(lineColToAbs(lines, 0, 0)).toBe(0);
+    // line 1 starts after "first line\n" = 11 chars
+    expect(lineColToAbs(lines, 1, 0)).toBe(11);
+    // line 2 starts after "first line\nsecond line\n" = 23 chars
+    expect(lineColToAbs(lines, 2, 0)).toBe(23);
   });
 });

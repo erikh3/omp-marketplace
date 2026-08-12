@@ -1,6 +1,6 @@
 import { CustomEditor } from "@oh-my-pi/pi-coding-agent";
 import { canonicalKeyId, matchesKey, parseKey } from "@oh-my-pi/pi-tui";
-import { absToLineCol, graphemeCount, graphemeSteps, lineColToAbs } from "./vim/bridge.js";
+import { graphemeCount, graphemeSteps, lineColToAbs, moveCursorToAbs } from "./host/keystroke-bridge.js";
 import {
 	findCharMotionTarget,
 	findFirstNonWhitespaceColumn,
@@ -231,24 +231,16 @@ export class ModalVimEditor extends CustomEditor {
 	}
 
 	/**
-	 * Move the cursor to an absolute buffer offset. Anchors at the buffer start
-	 * and walks down to the target logical line (watching `getCursor().line`, so
-	 * it is correct under line wrapping and never presses `down` on the last
-	 * visual line where the base editor would navigate history), then walks
-	 * right to the target column.
+	 * Move the cursor to an absolute buffer offset. Delegates the anchor +
+	 * line-then-column replay loop to {@link moveCursorToAbs} in
+	 * `src/host/keystroke-bridge.ts`.
 	 */
 	#moveToAbs(abs: number): void {
-		const { line, col } = absToLineCol(this.getLines(), abs);
-		this.moveToMessageStart();
-		let guard = 0;
-		while (this.getCursor().line < line && guard++ < 100000) {
-			const before = this.getCursor();
-			this.handleDraftEdit(SEQ.down);
-			const after = this.getCursor();
-			if (after.line === before.line && after.col === before.col) break;
-		}
-		this.moveToLineStart();
-		this.#moveToColInLine(col);
+		moveCursorToAbs(this, abs, {
+			moveToMessageStart: () => this.moveToMessageStart(),
+			moveToLineStart: () => this.moveToLineStart(),
+			replay: (seq, n) => this.#repeat(seq, n),
+		});
 	}
 
 	/**
