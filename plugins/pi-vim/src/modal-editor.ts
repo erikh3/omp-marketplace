@@ -112,6 +112,18 @@ export class ModalVimEditor extends CustomEditor {
 		this.#pendingG = false;
 	}
 
+	/** True when a multi-key command is mid-flight (count/operator/find/etc.). */
+	#hasPending(): boolean {
+		return (
+			this.#count !== "" ||
+			this.#op !== null ||
+			this.#textObject !== null ||
+			this.#charPending !== null ||
+			this.#replacePending ||
+			this.#pendingG
+		);
+	}
+
 	/** Resolve and consume the pending count, defaulting to 1. Clamped to a sane ceiling. */
 	#takeCount(): number {
 		const n = this.#count === "" ? 1 : Number.parseInt(this.#count, 10);
@@ -408,7 +420,15 @@ export class ModalVimEditor extends CustomEditor {
 		const canonical = parsed !== undefined ? canonicalKeyId(parsed) : undefined;
 
 		if (this.#isEscape(data)) {
-			this.#resetPending();
+			// ESC in NORMAL cancels an in-flight command (count/operator/find/…)
+			// and is swallowed. With nothing pending it is a no-op for the buffer,
+			// so we forward it to the host — this is what lets a second ESC (after
+			// the INSERT→NORMAL one) reach omp's interrupt to stop the agent.
+			if (this.#hasPending()) {
+				this.#resetPending();
+				return;
+			}
+			super.handleInput(data);
 			return;
 		}
 

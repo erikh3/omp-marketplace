@@ -135,13 +135,26 @@ function check(name: string, actual: unknown, expected: unknown): void {
 	check("D deletes to line end", ed.getText(), "keep");
 }
 
-// 10. Esc in normal mode is idempotent (stays normal, resets pending).
+// 10. Esc in NORMAL: cancels a pending command (swallowed), else passes through
+// to the host so a second Esc can interrupt the agent.
 {
 	const { ed } = newEditor();
-	type(ed, "x");
-	ed.handleInput(ESC);
-	ed.handleInput(ESC);
-	check("double esc stays normal", ed.mode, "normal");
+	let interrupts = 0;
+	ed.onEscape = () => {
+		interrupts++;
+	};
+	type(ed, "x"); // buffer "x", INSERT
+	ed.handleInput(ESC); // INSERT -> NORMAL (owned, no interrupt)
+	check("first esc enters normal", ed.mode, "normal");
+	check("first esc does not interrupt", interrupts, 0);
+	ed.handleInput(ESC); // NORMAL, nothing pending -> passes through
+	check("second esc stays normal", ed.mode, "normal");
+	check("second esc interrupts host", interrupts, 1);
+
+	// A pending command swallows Esc instead of forwarding it.
+	ed.handleInput("d"); // operator pending
+	ed.handleInput(ESC); // cancels the operator, swallowed
+	check("esc cancels pending, no interrupt", interrupts, 1);
 }
 
 // 11. Mode widget renders the label right-aligned and updates on mode change.
