@@ -660,7 +660,9 @@ function check(name: string, actual: unknown, expected: unknown): void {
 
 // --- EX (execute) mode --------------------------------------------------
 
-// Wire the ex callbacks the way index.ts does, capturing host effects.
+// Wire the ex callbacks the way index.ts does, capturing host effects. Quit is
+// dispatched as the host `/quit` command (like a manually typed `/quit`), so it
+// lands in `dispatched`; `quit.count` counts those for the quit assertions.
 function newExEditor(commands: string[] = []): {
 	ed: ModalVimEditor;
 	ex: (string | null)[];
@@ -676,11 +678,9 @@ function newExEditor(commands: string[] = []): {
 	ed.onExCommandChange = (c) => ex.push(c);
 	ed.runExCommand = (line) => {
 		dispatched.push(line);
+		if (line === "/quit") quit.count++;
 	};
 	ed.notifyUser = (m) => notified.push(m);
-	ed.onQuit = () => {
-		quit.count++;
-	};
 	ed.getCommandNames = () => new Set(commands);
 	return { ed, ex, dispatched, notified, quit };
 }
@@ -722,13 +722,15 @@ function typeEx(ed: ModalVimEditor, s: string): void {
 	check("backspace drops last ex char", ex.at(-1), ":q");
 }
 
-// 50. `:q` on empty prompt quits; ex clears.
+// 50. `:q` on empty prompt quits via the host `/quit` command (not the deferred
+// ctx.shutdown flag — that was the bug where quit only fired on the next turn).
 {
-	const { ed, ex, quit } = newExEditor();
+	const { ed, ex, dispatched, quit } = newExEditor();
 	ed.handleInput(ESC); // empty buffer
 	typeEx(ed, ":q");
 	ed.handleInput(CR);
 	check("`:q` on empty prompt quits", quit.count, 1);
+	check("`:q` dispatches the host /quit command", dispatched.at(-1), "/quit");
 	check("submit clears ex", ex.at(-1), null);
 }
 

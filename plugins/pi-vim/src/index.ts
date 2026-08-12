@@ -69,7 +69,6 @@ export default function piVim(pi: ExtensionAPI): void {
 				const editor = new ModalVimEditor(tui, theme, keybindings);
 				editor.onModeChange = applyMode;
 				editor.onExCommandChange = applyEx;
-				editor.onQuit = () => ctx.shutdown();
 				editor.notifyUser = (message) => ctx.ui.notify(message, "warning");
 				editor.getCommandNames = () => new Set([
 					...BUILTIN_SLASH_COMMAND_RESERVED_NAMES,

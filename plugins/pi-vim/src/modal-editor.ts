@@ -99,8 +99,6 @@ export class ModalVimEditor extends CustomEditor {
 	/** Dispatches a command line (`"/name args"` or `"!cmd"`) through the host. Optional;
 	 * when unset, the editor falls back to setting the buffer text and calling {@link onSubmit}. */
 	runExCommand: ((commandLine: string) => void | Promise<void>) | undefined;
-	/** Host shutdown (`:q` etc.). Optional; unset = no-op. */
-	onQuit: (() => void) | undefined;
 	/** Warning notifications ("Unsupported ex command", quit-with-dirty-prompt, etc.). */
 	notifyUser: ((message: string) => void) | undefined;
 	/** Resolved at submit time so mid-session-registered commands are reachable. */
@@ -1332,7 +1330,13 @@ export class ModalVimEditor extends CustomEditor {
 		this.#clearEx();
 		if (!command) return;
 
-		// 1. Quit family: :q / :qa / :quit / :qall / :quitall (with optional !)
+		// 1. Quit family: :q / :qa / :quit / :qall / :quitall (with optional !).
+		// We keep vim's dirty-prompt guard here, but the actual quit is dispatched
+		// as the host `/quit` command (not the extension `ctx.shutdown()` flag,
+		// which only tears down at the *next* submit boundary — so a bare
+		// ctx.shutdown() from this keystroke handler would appear to do nothing
+		// until the following prompt's turn finished). `/quit` reaches the host's
+		// immediate shutdown, matching a manually typed `/quit`.
 		const force = command.endsWith("!");
 		const quitName = force ? command.slice(0, -1) : command;
 		if (Object.hasOwn(ModalVimEditor.#QUIT_NAMES, quitName)) {
@@ -1340,7 +1344,10 @@ export class ModalVimEditor extends CustomEditor {
 				this.notifyUser?.(`Prompt is not empty; use :${command}! to quit anyway`);
 				return;
 			}
-			this.onQuit?.();
+			// Clear the draft first: `/quit` only tears down when the prompt is
+			// empty/whitespace, and `:q!` must force-quit a non-empty prompt too.
+			this.setText("");
+			this.#dispatchQuit();
 			return;
 		}
 
@@ -1412,5 +1419,23 @@ export class ModalVimEditor extends CustomEditor {
 					// Swallow: a throw must not break the editor.
 				});
 		}
+	}
+
+	/**
+	 * Quit the host session by submitting its `/quit` command through the same
+	 * seam a manually typed `/quit` uses — which reaches the host's *immediate*
+	 * shutdown. This is deliberately NOT the extension `ctx.shutdown()`: that only
+	 * sets a deferred flag the host checks at the next submit boundary, so from
+	 * this keystroke handler it would appear to hang until the following prompt's
+	 * turn completed. No draft restore: the session is tearing down, and the
+	 * prompt was already cleared by the caller.
+	 */
+	#dispatchQuit(): void {
+		if (this.runExCommand !== undefined) {
+			void this.runExCommand("/quit");
+			return;
+		}
+		this.setText("/quit");
+		void this.onSubmit?.("/quit");
 	}
 }
