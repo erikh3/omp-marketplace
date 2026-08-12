@@ -147,9 +147,29 @@ export class ModalVimEditor extends CustomEditor {
 		this.#moveToColInLine(col);
 	}
 
-	/** Delete the half-open buffer range `[lo, hi)` via forward-deletes from `lo`. */
+	/**
+	 * Delete the half-open buffer range `[lo, hi)`.
+	 *
+	 * The base editor records one undo snapshot per delete *call*, so replaying
+	 * N forward-delete keys would make `u` peel the deletion back one grapheme at
+	 * a time. For a single-line range we instead position at `hi` and call
+	 * `deleteBeforeCursor(hi - lo)`, which snapshots undo once and removes the
+	 * whole span as a single change — so one `u` restores the whole `dw`/`de`/
+	 * `df`/`x`/text-object edit, matching vim. `lo`/`hi` are grapheme-aligned
+	 * offsets, so deleting exactly `hi - lo` code units removes whole graphemes.
+	 *
+	 * A range that crosses a line boundary falls back to key replay: no public
+	 * API deletes across newlines as one undo unit (`setText` would wipe the undo
+	 * stack), so multi-line linewise edits (`dd`, `dj`, `dG`) stay multi-step.
+	 */
 	#deleteAbsRange(lo: number, hi: number): void {
 		if (hi <= lo) return;
+		const lines = this.getLines();
+		if (absToLineCol(lines, lo).line === absToLineCol(lines, hi).line) {
+			this.#moveToAbs(hi);
+			this.deleteBeforeCursor(hi - lo);
+			return;
+		}
 		const n = graphemeCount(this.getText().slice(lo, hi));
 		this.#moveToAbs(lo);
 		this.#repeat(SEQ.deleteForward, n);
@@ -780,15 +800,21 @@ export class ModalVimEditor extends CustomEditor {
 		this.#moveToAbs(lineColToAbs(lines, target, col));
 	}
 
+	/** `x` / `{count}x`: delete count graphemes from under the cursor, one undo unit. */
 	#deleteUnderCursor(count: number): void {
-		this.#repeat(SEQ.deleteForward, count);
+		const lines = this.getLines();
+		const { line, col } = this.getCursor();
+		const text = lines[line] ?? "";
+		let end = col;
+		for (let i = 0; i < count && end < text.length; i++) end += this.#graphemeLenAt(text, end);
+		this.#deleteAbsRange(lineColToAbs(lines, line, col), lineColToAbs(lines, line, end));
 	}
 
-	/** Delete from the cursor to the end of the current line. */
+	/** Delete from the cursor to the end of the current line, as one undo unit. */
 	#deleteToLineEnd(): void {
+		const lines = this.getLines();
 		const { line, col } = this.getCursor();
-		const text = this.getLines()[line] ?? "";
-		const n = graphemeCount(text.slice(col));
-		this.#repeat(SEQ.deleteForward, n);
+		const text = lines[line] ?? "";
+		this.#deleteAbsRange(lineColToAbs(lines, line, col), lineColToAbs(lines, line, text.length));
 	}
 }

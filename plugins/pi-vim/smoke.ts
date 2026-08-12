@@ -381,5 +381,31 @@ function check(name: string, actual: unknown, expected: unknown): void {
 	check("u restores the edit", ed.getText(), "hello");
 }
 
+// 29. dw + u restores the WHOLE word in one undo (not one char at a time).
+{
+	const { ed } = newEditor();
+	type(ed, "foo bar baz");
+	ed.handleInput(ESC);
+	ed.handleInput("0"); // start of "foo"
+	ed.handleInput("d");
+	ed.handleInput("w"); // delete "foo " -> "bar baz"
+	check("dw removed the word", ed.getText(), "bar baz");
+	ed.handleInput("u"); // single undo restores the whole deletion
+	check("u restores whole dw", ed.getText(), "foo bar baz");
+}
+
+// 30. {count}x + u restores all deleted chars in one undo.
+{
+	const { ed } = newEditor();
+	type(ed, "abcdef");
+	ed.handleInput(ESC);
+	ed.handleInput("0");
+	ed.handleInput("3");
+	ed.handleInput("x"); // delete "abc" -> "def"
+	check("3x removed three chars", ed.getText(), "def");
+	ed.handleInput("u");
+	check("u restores whole 3x", ed.getText(), "abcdef");
+}
+
 console.log(failures === 0 ? "\nALL PASS" : `\n${failures} FAILURE(S)`);
 process.exit(failures === 0 ? 0 : 1);
