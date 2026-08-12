@@ -13,6 +13,7 @@ import {
 	clampVisualPosition,
 } from "../vim/visual.js";
 import { lineColToAbs } from "../host/keystroke-bridge.js";
+import type { EditIntent } from "./intent.js";
 import type { Ctx } from "./state.js";
 
 /** Returns the anchor, clamped to the current buffer (text may have reflowed). */
@@ -49,10 +50,9 @@ export function linewiseRange(ctx: Ctx): { startLine: number; endLine: number } 
  * Swap the visual anchor and the live cursor (the `o` action): the opposite
  * end of the selection becomes the new live cursor.
  */
-export function swapEnds(ctx: Ctx): void {
-	const lines = ctx.host.getLines();
+export function swapEnds(ctx: Ctx): EditIntent[] {
 	const anchor = getAnchor(ctx);
 	const cursor = ctx.host.getCursor();
 	ctx.state.visualAnchor = { line: cursor.line, col: cursor.col };
-	ctx.host.moveCursor({ line: anchor.line, col: anchor.col });
+	return [{ kind: "moveCursor", to: { line: anchor.line, col: anchor.col } }];
 }

@@ -81,3 +81,45 @@ export interface HostEffects extends BufferView {
 	/** Redo the last undone change(s). Cancels any open pending change. */
 	redo(count: number): void;
 }
+
+// ---------------------------------------------------------------------------
+// Effect applier
+// ---------------------------------------------------------------------------
+
+import type { EditIntent } from "../engine/intent.js";
+
+/**
+ * Execute `intents` in **strict emission order** against `host`.
+ *
+ * This is the ONE place that calls `HostEffects` methods for buffer mutation /
+ * cursor movement / mode signalling. `runEx` may return a `Promise`; the async
+ * buffer-restore stays host-side and is outside the synchronous undo bracket.
+ */
+export function applyIntents(host: HostEffects, intents: EditIntent[]): void {
+	for (const intent of intents) {
+		switch (intent.kind) {
+			case "moveCursor":
+				host.moveCursor(intent.to);
+				break;
+			case "replaceRange":
+				host.replaceRange(intent.range, intent.text);
+				break;
+			case "setMode":
+				host.signalMode(intent.mode);
+				break;
+			case "setExBuffer":
+				host.signalEx(intent.value);
+				break;
+			case "runEx":
+				// May return a Promise; the async restore is host-side, not in this bracket.
+				void host.runEx(intent.line);
+				break;
+			case "notify":
+				host.notify(intent.message);
+				break;
+			case "forward":
+				host.forward(intent.data);
+				break;
+		}
+	}
+}

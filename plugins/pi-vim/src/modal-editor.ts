@@ -1,13 +1,13 @@
 import { CustomEditor } from "@oh-my-pi/pi-coding-agent";
 import { matchesKey } from "@oh-my-pi/pi-tui";
-import { graphemeCount, graphemeSteps, lineColToAbs, moveCursorToAbs } from "./host/keystroke-bridge.js";
+import { graphemeCount, lineColToAbs, moveCursorToAbs } from "./host/keystroke-bridge.js";
 import type { HostEffects, Pos, AbsRange, VimMode } from "./host/adapter.js";
 export type { VimMode } from "./host/adapter.js";
 import { History, type Snapshot } from "./host/history.js";
 import { parseExLine } from "./ex/parser.js";
 import { dispatchEx, type ExHost } from "./ex/commands.js";
-import { type VimState, makeVimState, resetInput, takeCount, hasPending } from "./engine/state.js";
-import { evaluate } from "./engine/dispatch.js";
+import { type VimState, makeVimState, resetInput } from "./engine/state.js";
+import { runKey } from "./engine/dispatch.js";
 
 /**
  * Raw terminal byte sequences replayed into the base editor. NORMAL-mode
@@ -70,19 +70,6 @@ export class ModalVimEditor extends CustomEditor implements HostEffects {
 		this.onModeChange?.(mode);
 	}
 
-	#resetPending(): void {
-		resetInput(this.#state);
-	}
-
-	/** True when a multi-key command is mid-flight. */
-	#hasPending(): boolean {
-		return hasPending(this.#state);
-	}
-
-	/** Resolve and consume the pending count, defaulting to 1. */
-	#takeCount(): number {
-		return takeCount(this.#state);
-	}
 
 	#repeat(seq: string, times: number): void {
 		for (let i = 0; i < times; i++) this.handleDraftEdit(seq);
@@ -95,13 +82,6 @@ export class ModalVimEditor extends CustomEditor implements HostEffects {
 		return { text: this.getText(), line, col };
 	}
 
-	#beginChange(): void {
-		this.#history.begin(this.getText(), this.getCursor());
-	}
-
-	#commitChange(): void {
-		this.#history.commit(this.getText());
-	}
 
 	/** Restore the buffer to `snap` (text + cursor) via the base editor's public API. */
 	#restore(snap: Snapshot): void {
@@ -147,20 +127,17 @@ export class ModalVimEditor extends CustomEditor implements HostEffects {
 	/**
 	 * Delete the half-open buffer range `[lo, hi)` by replaying forward-delete
 	 * keys from `lo`. Used internally by `replaceRange`.
+	 *
+	 * NOTE (Task 7): register management is now the engine's responsibility;
+	 * `#deleteAbsRange` no longer writes to the register.
 	 */
 	#deleteAbsRange(lo: number, hi: number): void {
 		if (hi <= lo) return;
-		// Deletes fill the unnamed register (charwise). Linewise callers overwrite.
-		this.#yankToRegister(this.getText().slice(lo, hi), false);
 		const n = graphemeCount(this.getText().slice(lo, hi));
 		this.#moveToAbs(lo);
 		this.#repeat(SEQ.deleteForward, n);
 	}
 
-	/** Store `text` in the unnamed register, tagging it charwise or linewise. */
-	#yankToRegister(text: string, linewise: boolean): void {
-		this.#state.registers.set({ text, linewise });
-	}
 
 	// --- input handling ----------------------------------------------------
 
@@ -177,23 +154,17 @@ export class ModalVimEditor extends CustomEditor implements HostEffects {
 				if (this.getCursor().col > 0) this.handleDraftEdit(SEQ.left);
 				return;
 			}
-			// One undo unit per INSERT keystroke.
-			this.#beginChange();
-			super.handleInput(data);
-			this.#commitChange();
-			return;
 		}
 		// EX mode: route to the ex buffer handler (never opens an undo unit).
 		if (this.#state.exBuffer !== null) {
 			this.#handleEx(data);
 			return;
 		}
-		// NORMAL / VISUAL command: snapshot the buffer, dispatch via the
-		// table-driven evaluator, then commit the change.
-		this.#beginChange();
-		evaluate({ state: this.#state, host: this }, data);
-		this.#commitChange();
+		// All other keys (INSERT forwards, NORMAL/VISUAL commands) go through
+		// runKey, which owns the undo boundary.
+		runKey(this.#state, this, this.#history, data);
 	}
+
 
 	#isEscape(data: string): boolean {
 		return matchesKey(data, "escape") || data === "\x1b" || matchesKey(data, "ctrl+[");

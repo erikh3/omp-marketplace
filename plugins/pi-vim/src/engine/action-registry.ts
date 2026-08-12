@@ -1,12 +1,13 @@
 /**
  * Action registry — standalone commands that need no motion target.
  *
- * Covers: mode entries (i a I A o O), visual entries (v V), ex (:),
- * x / s / r, p / P, u, D / C / Y. Each function performs its effects
- * imperatively via `ctx.host`.
+ * Task 7: each function now RETURNS EditIntent[] instead of calling ctx.host
+ * imperatively. Cursor position after paste is computed analytically from the
+ * pre-paste buffer state so no post-edit host reads are needed.
  *
- * NOTE: dd/cc/yy doubled operators are special-cased in the evaluator
- * (they are "action" entries in the keymap but handled inline in dispatch).
+ * Covers: mode entries (i a I A o O), visual entries (v V),
+ * x / s / r, p / P, D / C / Y.
+ * NOTE: dd/cc/yy doubled operators are special-cased in the evaluator.
  */
 
 import {
@@ -16,69 +17,77 @@ import {
 } from "../vim/motions.js";
 import { lineColToAbs, absToLineCol } from "../host/keystroke-bridge.js";
 import { applyLinewiseOp, deleteCharwise } from "./operator-registry.js";
+import type { EditIntent } from "./intent.js";
 import type { Ctx } from "./state.js";
 import { graphemeLenAt } from "./motion-registry.js";
-
 
 // ---------------------------------------------------------------------------
 // Mode entries
 // ---------------------------------------------------------------------------
 
-export function actionI(ctx: Ctx): void {
-	ctx.host.signalMode("insert");
+export function actionI(_ctx: Ctx): EditIntent[] {
+	return [{ kind: "setMode", mode: "insert" }];
 }
 
 /** `a` — append after cursor (move right one grapheme, enter INSERT). */
-export function actionA(ctx: Ctx): void {
+export function actionA(ctx: Ctx): EditIntent[] {
 	const { line, col } = ctx.host.getCursor();
 	const text = ctx.host.getLines()[line] ?? "";
 	const newCol = col + graphemeLenAt(text, col);
-	ctx.host.moveCursor({ line, col: newCol });
-	ctx.host.signalMode("insert");
+	return [
+		{ kind: "moveCursor", to: { line, col: newCol } },
+		{ kind: "setMode", mode: "insert" },
+	];
 }
 
 /** `I` — insert at line start (col 0). */
-export function actionBigI(ctx: Ctx): void {
+export function actionBigI(ctx: Ctx): EditIntent[] {
 	const { line } = ctx.host.getCursor();
-	ctx.host.moveCursor({ line, col: 0 });
-	ctx.host.signalMode("insert");
+	return [
+		{ kind: "moveCursor", to: { line, col: 0 } },
+		{ kind: "setMode", mode: "insert" },
+	];
 }
 
 /** `A` — append at line end. */
-export function actionBigA(ctx: Ctx): void {
+export function actionBigA(ctx: Ctx): EditIntent[] {
 	const { line } = ctx.host.getCursor();
 	const col = (ctx.host.getLines()[line] ?? "").length;
-	ctx.host.moveCursor({ line, col });
-	ctx.host.signalMode("insert");
+	return [
+		{ kind: "moveCursor", to: { line, col } },
+		{ kind: "setMode", mode: "insert" },
+	];
 }
 
 /**
  * `o` — open line below: signal INSERT, then insert `\n` at EOL.
- * Effect order (spec §2): set INSERT → insert \n.
+ * Effect order (spec §2): setMode insert → replaceRange(EOL, \n).
  */
-export function actionO(ctx: Ctx): void {
+export function actionO(ctx: Ctx): EditIntent[] {
 	const { line } = ctx.host.getCursor();
 	const lines = ctx.host.getLines();
 	const eolCol = (lines[line] ?? "").length;
 	const eolAbs = lineColToAbs(lines, line, eolCol);
-	ctx.host.signalMode("insert");
-	// replaceRange({eolAbs, eolAbs}, "\n") = #moveToAbs(eolAbs) + insertText("\n")
-	ctx.host.replaceRange({ start: eolAbs, end: eolAbs }, "\n");
+	return [
+		{ kind: "setMode", mode: "insert" },
+		{ kind: "replaceRange", range: { start: eolAbs, end: eolAbs }, text: "\n" },
+	];
 }
 
 /**
  * `O` — open line above: signal INSERT, insert `\n` at line start, move up.
- * Original: moveToLineStart → insertText("\n") → handleDraftEdit(up) → setMode("insert").
  */
-export function actionBigO(ctx: Ctx): void {
+export function actionBigO(ctx: Ctx): EditIntent[] {
 	const { line } = ctx.host.getCursor();
 	const lines = ctx.host.getLines();
 	const lineStartAbsVal = lineColToAbs(lines, line, 0);
-	ctx.host.signalMode("insert");
-	// Insert "\n" at line start — pushes current content down one line.
-	ctx.host.replaceRange({ start: lineStartAbsVal, end: lineStartAbsVal }, "\n");
-	// Move cursor up to the newly created empty line.
-	ctx.host.moveCursor({ line, col: 0 });
+	return [
+		{ kind: "setMode", mode: "insert" },
+		// Insert "\n" at line start — pushes current content down one line.
+		{ kind: "replaceRange", range: { start: lineStartAbsVal, end: lineStartAbsVal }, text: "\n" },
+		// Move cursor to the newly created empty line (same line index now holds new blank line).
+		{ kind: "moveCursor", to: { line, col: 0 } },
+	];
 }
 
 // ---------------------------------------------------------------------------
@@ -89,26 +98,26 @@ export function actionBigO(ctx: Ctx): void {
  * `v` — enter charwise VISUAL (or exit if already in charwise VISUAL).
  * Anchors at the cursor when entering from NORMAL.
  */
-export function actionV(ctx: Ctx): void {
+export function actionV(ctx: Ctx): EditIntent[] {
 	if (ctx.state.mode !== "visual" && ctx.state.mode !== "visual-line") {
 		const cur = ctx.host.getCursor();
 		ctx.state.visualAnchor = { line: cur.line, col: cur.col };
 	}
 	ctx.state.input.count = "";
-	ctx.host.signalMode("visual");
+	return [{ kind: "setMode", mode: "visual" }];
 }
 
 /**
  * `V` — enter VISUAL-LINE (or exit if already in VISUAL-LINE).
  * Anchors at the cursor when entering from NORMAL.
  */
-export function actionBigV(ctx: Ctx): void {
+export function actionBigV(ctx: Ctx): EditIntent[] {
 	if (ctx.state.mode !== "visual" && ctx.state.mode !== "visual-line") {
 		const cur = ctx.host.getCursor();
 		ctx.state.visualAnchor = { line: cur.line, col: cur.col };
 	}
 	ctx.state.input.count = "";
-	ctx.host.signalMode("visual-line");
+	return [{ kind: "setMode", mode: "visual-line" }];
 }
 
 // ---------------------------------------------------------------------------
@@ -119,7 +128,7 @@ export function actionBigV(ctx: Ctx): void {
  * `x` / `{count}x` — delete `count` graphemes from under the cursor forward.
  * Stops at the end of the current line.
  */
-export function actionX(ctx: Ctx, count: number): void {
+export function actionX(ctx: Ctx, count: number): EditIntent[] {
 	const lines = ctx.host.getLines();
 	const { line, col } = ctx.host.getCursor();
 	const text = lines[line] ?? "";
@@ -129,35 +138,35 @@ export function actionX(ctx: Ctx, count: number): void {
 	}
 	const lo = lineColToAbs(lines, line, col);
 	const hi = lineColToAbs(lines, line, end);
-	if (hi > lo) deleteCharwise(ctx, lo, hi);
+	if (hi > lo) return deleteCharwise(ctx, lo, hi);
+	return [];
 }
 
 /** `s` — delete `count` graphemes, then enter INSERT. */
-export function actionS(ctx: Ctx, count: number): void {
-	actionX(ctx, count);
-	ctx.host.signalMode("insert");
+export function actionS(ctx: Ctx, count: number): EditIntent[] {
+	return [...actionX(ctx, count), { kind: "setMode", mode: "insert" }];
 }
 
 /** `D` — delete from cursor to end of current line. */
-export function actionBigD(ctx: Ctx): void {
+export function actionBigD(ctx: Ctx): EditIntent[] {
 	const lines = ctx.host.getLines();
 	const { line, col } = ctx.host.getCursor();
 	const text = lines[line] ?? "";
 	const lo = lineColToAbs(lines, line, col);
 	const hi = lineColToAbs(lines, line, text.length);
-	if (hi > lo) deleteCharwise(ctx, lo, hi);
+	if (hi > lo) return deleteCharwise(ctx, lo, hi);
+	return [];
 }
 
 /** `C` — delete to EOL, then enter INSERT. */
-export function actionBigC(ctx: Ctx): void {
-	actionBigD(ctx);
-	ctx.host.signalMode("insert");
+export function actionBigC(ctx: Ctx): EditIntent[] {
+	return [...actionBigD(ctx), { kind: "setMode", mode: "insert" }];
 }
 
 /** `Y` — yank current line + (count - 1) lines below, linewise. */
-export function actionBigY(ctx: Ctx, count: number): void {
+export function actionBigY(ctx: Ctx, count: number): EditIntent[] {
 	const { line } = ctx.host.getCursor();
-	applyLinewiseOp(ctx, "y", line, line + count - 1);
+	return applyLinewiseOp(ctx, "y", line, line + count - 1);
 }
 
 // ---------------------------------------------------------------------------
@@ -167,73 +176,79 @@ export function actionBigY(ctx: Ctx, count: number): void {
 /**
  * `p` / `P` — paste the unnamed register `count` times.
  *
- * Charwise: `p` (after=true) inserts after the cursor grapheme (unless line is
- * empty), `P` inserts at the cursor. Cursor rests on the last pasted grapheme.
+ * Cursor position after paste is computed analytically (no post-insert
+ * getCursor() read). For charwise paste the final col is computed from
+ * the insert position + text length. For linewise paste the target line is
+ * derived from the block's first line.
  *
- * Linewise: `p` inserts new line(s) below the current line, `P` above it.
- * Cursor rests at the first non-blank of the first pasted line.
- *
- * Replicates `#paste(count, after)` exactly.
+ * `postDeleteCursor` — optional override for the cursor position; used by
+ * the visual-p path where the buffer has been visually deleted before paste
+ * but the intents have not yet been applied.
  */
-export function actionPaste(ctx: Ctx, count: number, after: boolean): void {
+export function actionPaste(
+	ctx: Ctx,
+	count: number,
+	after: boolean,
+	postDeleteCursor?: { line: number; col: number },
+): EditIntent[] {
 	const reg = ctx.state.registers.get();
-	if (reg === null || reg.text === "") return;
+	if (reg === null || reg.text === "") return [];
 
 	const lines = ctx.host.getLines();
-	const { line } = ctx.host.getCursor();
+	const { line } = postDeleteCursor ?? ctx.host.getCursor();
 
 	if (reg.linewise) {
 		const content = reg.text.endsWith("\n")
 			? reg.text.slice(0, -1)
 			: reg.text;
 		const block = Array.from({ length: count }, () => content).join("\n");
+		// Cursor target = first non-blank of block's first line.
+		const blockFirstLine = block.split("\n")[0] ?? "";
+		const targetCol = isBlankLine(blockFirstLine) ? 0 : findFirstNonWhitespaceColumn(blockFirstLine);
 
 		if (after) {
-			// Insert `\nblock` at EOL of current line → new content appears on the line(s) below.
+			// Insert `\nblock` at EOL → new lines appear below current line.
 			const eolCol = (lines[line] ?? "").length;
 			const eolAbs = lineColToAbs(lines, line, eolCol);
-			ctx.host.replaceRange({ start: eolAbs, end: eolAbs }, `\n${block}`);
-			gotoLineFirstNonWs(ctx, line + 1);
+			return [
+				{ kind: "replaceRange", range: { start: eolAbs, end: eolAbs }, text: `\n${block}` },
+				{ kind: "moveCursor", to: { line: line + 1, col: targetCol } },
+			];
 		} else {
-			// Insert `block\n` at BOL of current line → new content appears on the line(s) above.
+			// Insert `block\n` at BOL → block appears at current line index.
 			const lineStartAbsVal = lineColToAbs(lines, line, 0);
-			ctx.host.replaceRange(
-				{ start: lineStartAbsVal, end: lineStartAbsVal },
-				`${block}\n`,
-			);
-			gotoLineFirstNonWs(ctx, line);
+			return [
+				{ kind: "replaceRange", range: { start: lineStartAbsVal, end: lineStartAbsVal }, text: `${block}\n` },
+				{ kind: "moveCursor", to: { line, col: targetCol } },
+			];
 		}
-		return;
 	}
 
 	// Charwise paste.
-	const { line: curLine, col: curCol } = ctx.host.getCursor();
+	const { col: curCol } = postDeleteCursor ?? ctx.host.getCursor();
+	const { line: curLine } = postDeleteCursor ?? ctx.host.getCursor();
 	const curAbs = lineColToAbs(lines, curLine, curCol);
 	const onNonEmptyLine = (lines[curLine] ?? "").length > 0;
-	const insertAbs =
-		after && onNonEmptyLine
-			? curAbs + graphemeLenAt(ctx.host.getText(), curAbs)
-			: curAbs;
+	const insertAbs = after && onNonEmptyLine
+		? curAbs + graphemeLenAt(ctx.host.getText(), curAbs)
+		: curAbs;
 	const text = reg.text.repeat(count);
 
-	// replaceRange({insertAbs, insertAbs}, text) = #moveToAbs(insertAbs) + insertText(text)
-	ctx.host.replaceRange({ start: insertAbs, end: insertAbs }, text);
-
-	// Vim rests the cursor on the LAST pasted grapheme.
-	// After replaceRange, the cursor is one past the last pasted char.
-	// Step back by the UTF-16 width of the last grapheme in `text`.
+	// Compute final cursor position analytically (no post-insert read).
+	const { line: insertLine, col: insertCol } = absToLineCol(lines, insertAbs);
 	const textGfx = getLineGraphemes(text);
 	const lastG = textGfx.length > 0 ? textGfx[textGfx.length - 1] : null;
 	const lastWidth = lastG !== null ? lastG.end - lastG.start : 1;
-	const { line: cLine, col: cCol } = ctx.host.getCursor();
-	ctx.host.moveCursor({ line: cLine, col: cCol - lastWidth });
-}
+	const textParts = text.split("\n");
+	const newlines = textParts.length - 1;
+	const cLine = insertLine + newlines;
+	const cCol = newlines === 0
+		? insertCol + text.length
+		: (textParts[textParts.length - 1] ?? "").length;
+	const finalCol = cCol - lastWidth;
 
-/** Park cursor at the first non-blank of `lineIdx` (for linewise paste). */
-function gotoLineFirstNonWs(ctx: Ctx, lineIdx: number): void {
-	const lines = ctx.host.getLines();
-	const target = Math.max(0, Math.min(lineIdx, lines.length - 1));
-	const text = lines[target] ?? "";
-	const col = isBlankLine(text) ? 0 : findFirstNonWhitespaceColumn(text);
-	ctx.host.moveCursor({ line: target, col });
+	return [
+		{ kind: "replaceRange", range: { start: insertAbs, end: insertAbs }, text },
+		{ kind: "moveCursor", to: { line: cLine, col: finalCol } },
+	];
 }
