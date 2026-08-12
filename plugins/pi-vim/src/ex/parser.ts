@@ -16,7 +16,7 @@
  * - `empty`   — the line was blank after trimming
  */
 export type ExParse =
-	| { kind: "command"; name: string; args: string }
+	| { kind: "command"; name: string; args: string; raw: string }
 	| { kind: "search"; pattern: string }
 	| { kind: "empty" };
 
@@ -71,7 +71,7 @@ export function parseExLine(line: string): ExParse {
 
 	// Shell passthrough: :!cmd or :!!cmd
 	if (command.startsWith("!")) {
-		return { kind: "command", name: command, args: "" };
+		return { kind: "command", name: command, args: "", raw: command };
 	}
 
 	// Split into name and args on first whitespace.
@@ -79,5 +79,5 @@ export function parseExLine(line: string): ExParse {
 	const name = sep === -1 ? command : command.slice(0, sep);
 	const args = sep === -1 ? "" : command.slice(sep + 1).trim();
 
-	return { kind: "command", name, args };
+	return { kind: "command", name, args, raw: command };
 }

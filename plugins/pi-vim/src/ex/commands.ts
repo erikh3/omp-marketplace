@@ -51,12 +51,12 @@ export interface ExHost {
 export function dispatchEx(parse: ExParse, host: ExHost): void {
 	if (parse.kind === "empty") return;
 
-	const { name, args } = parse as { kind: "command"; name: string; args: string };
+	const { name, args, raw } = parse as { kind: "command"; name: string; args: string; raw: string };
 
 	// 1. Quit family: :q / :qa / :quit / :qall / :quitall (with optional !).
 	const force = name.endsWith("!");
 	const quitName = force ? name.slice(0, -1) : name;
-	if (Object.hasOwn(QUIT_NAMES, quitName)) {
+	if (args === "" && Object.hasOwn(QUIT_NAMES, quitName)) {
 		if (!force && host.getText().trim().length > 0) {
 			host.notifyUser(`Prompt is not empty; use :${name}! to quit anyway`);
 			return;
@@ -90,5 +90,5 @@ export function dispatchEx(parse: ExParse, host: ExHost): void {
 	}
 
 	// 5. Unknown command.
-	host.notifyUser(`Unsupported ex command: :${args ? `${name} ${args}` : name}`);
+	host.notifyUser(`Unsupported ex command: :${raw}`);
 }
