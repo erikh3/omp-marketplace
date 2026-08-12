@@ -26,6 +26,8 @@ import {
 	type VisualPosition,
 } from "./vim/visual.js";
 import { History, type Snapshot } from "./host/history.js";
+import { parseExLine } from "./ex/parser.js";
+import { dispatchEx, type ExHost } from "./ex/commands.js";
 
 export type VimMode = "normal" | "insert" | "visual" | "visual-line";
 
@@ -108,16 +110,6 @@ export class ModalVimEditor extends CustomEditor {
 	#history = new History();
 	/** `null` when ex mode is inactive; otherwise the full command buffer starting with `":"`. */
 	#exCommand: string | null = null;
-
-	/** Quit command names recognised by `:q` / `:qa` / `:quit` etc. */
-	static readonly #QUIT_NAMES: Record<string, true> = {
-		q: true, qa: true, quit: true, qall: true, quitall: true,
-	};
-	/** Ex commands reserved for future line-address / range support; notify instead of dispatch. */
-	static readonly #RESERVED_NAMES: Record<string, true> = {
-		s: true, g: true, v: true, d: true, m: true, t: true, co: true, j: true,
-		w: true, r: true, normal: true, sort: true, "&": true, ">": true, "<": true,
-	};
 
 	get mode(): VimMode {
 		return this.#mode;
@@ -1306,75 +1298,46 @@ export class ModalVimEditor extends CustomEditor {
 	}
 
 	/**
-	 * Submit the current ex command buffer. Clears ex mode first, then
-	 * dispatches through the resolution order inherited from upstream pi-vim.
+	 * Submit the current ex command buffer. Clears ex mode, then delegates parse
+	 * + dispatch to the ex modules. The async buffer-restore dance stays here
+	 * because it is omp-side bookkeeping, not vim logic.
 	 */
 	#submitEx(): void {
-		const command = (this.#exCommand ?? "").slice(1).trim();
+		const raw = (this.#exCommand ?? "").slice(1); // strip leading ":"
 		this.#clearEx();
-		if (!command) return;
+		const parse = parseExLine(raw);
+		if (parse.kind === "empty") return;
 
-		// 1. Quit family: :q / :qa / :quit / :qall / :quitall (with optional !).
-		// We keep vim's dirty-prompt guard here, but the actual quit is dispatched
-		// as the host `/quit` command (not the extension `ctx.shutdown()` flag,
-		// which only tears down at the *next* submit boundary — so a bare
-		// ctx.shutdown() from this keystroke handler would appear to do nothing
-		// until the following prompt's turn finished). `/quit` reaches the host's
-		// immediate shutdown, matching a manually typed `/quit`.
-		const force = command.endsWith("!");
-		const quitName = force ? command.slice(0, -1) : command;
-		if (Object.hasOwn(ModalVimEditor.#QUIT_NAMES, quitName)) {
-			if (!force && this.getText().trim().length > 0) {
-				this.notifyUser?.(`Prompt is not empty; use :${command}! to quit anyway`);
-				return;
-			}
-			// Clear the draft first: `/quit` only tears down when the prompt is
-			// empty/whitespace, and `:q!` must force-quit a non-empty prompt too.
-			this.setText("");
-			this.#dispatchQuit();
-			return;
-		}
+		// Build the ExHost seam. runExCommand is pre-wrapped to include the
+		// synchronous + async buffer-restore (pure omp bookkeeping kept here).
+		const host: ExHost = {
+			runExCommand: (commandLine) => {
+				this.#runExWithRestore(commandLine);
+			},
+			notifyUser: (msg) => { this.notifyUser?.(msg); },
+			getCommandNames: () => this.getCommandNames?.() ?? new Set<string>(),
+			getText: () => this.getText(),
+			dispatchQuit: () => {
+				// Clear the draft first: `/quit` only tears down when the prompt is
+				// empty/whitespace, and `:q!` must force-quit a non-empty prompt too.
+				this.setText("");
+				this.#dispatchQuit();
+			},
+		};
 
-		// 2. Shell passthrough: :!cmd or :!!cmd
-		if (command.startsWith("!")) {
-			const shell = command.replace(/^!+/, "").trim();
-			if (shell) {
-				this.#dispatchEx(command);
-			} else {
-				this.notifyUser?.(`Unsupported ex command: :${command}`);
-			}
-			return;
-		}
-
-		// 3. Split into name and args.
-		const sep = command.search(/\s/);
-		const name = sep === -1 ? command : command.slice(0, sep);
-		const args = sep === -1 ? "" : command.slice(sep + 1).trim();
-		const bareName = name.endsWith("!") ? name.slice(0, -1) : name;
-
-		// 4. Reserved commands (line-address / range operations, `:w`, etc.).
-		if (Object.hasOwn(ModalVimEditor.#RESERVED_NAMES, bareName)) {
-			this.notifyUser?.(`Reserved ex command: :${name}`);
-			return;
-		}
-
-		// 5. Known slash command registered with the host.
-		if (this.getCommandNames?.().has(name)) {
-			this.#dispatchEx(args ? `/${name} ${args}` : `/${name}`);
-			return;
-		}
-
-		// 6. Unknown.
-		this.notifyUser?.(`Unsupported ex command: :${command}`);
+		dispatchEx(parse, host);
 	}
 
 	/**
-	 * Dispatch `commandLine` through the host, then synchronously restore the
+	 * Run `commandLine` through the host, then synchronously restore the
 	 * draft buffer + cursor so the submission never eats the user's prompt.
 	 * An async submit path also re-restores when the promise settles if the
 	 * buffer was cleared.
+	 *
+	 * This is pure omp-side buffer bookkeeping — not ex logic — so it stays in
+	 * the editor, not in `commands.ts`.
 	 */
-	#dispatchEx(commandLine: string): void {
+	#runExWithRestore(commandLine: string): void {
 		const text = this.getText();
 		const { line, col } = this.getCursor();
 
