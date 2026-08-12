@@ -43,14 +43,19 @@ Motions accept a `{count}` prefix (e.g. `3j`, `12l`).
 | Key | Action |
 | --- | --- |
 | `h` `l` `j` `k` | Left / right / down / up |
-| `w` `b` | Word forward / back |
-| `0` `$` | Line start / end |
-| `gg` `G` | Buffer start / end |
-| `x` | Delete char under cursor |
-| `dd` | Delete current line's text |
-| `dw` | Delete word forward (through trailing whitespace) |
-| `d$` `D` | Delete to end of line |
-| `dl` | Delete char (operator form of `x`) |
+| `w` `W` `b` `B` `e` `E` | word / WORD start-forward, back, end-forward |
+| `0` `^` `$` | Line start / first non-blank / end |
+| `{` `}` | Previous / next paragraph |
+| `f` `F` `t` `T` `;` `,` | Char find forward/back, till, and repeat |
+| `%` | Jump to matching `()` `[]` `{}` |
+| `gg` `G` `{count}gg` `{count}G` | First line / last line / absolute line |
+| `x` | Delete char(s) under cursor |
+| `r{char}` | Replace char under cursor |
+| `s` | Delete char and enter INSERT |
+| `dd` `cc` `{count}dd` | Delete / change whole line(s) |
+| `D` `C` | Delete / change to end of line |
+| `d{motion}` `c{motion}` | Operator + any motion above (`dw`, `d$`, `df.`, `d%`, `dj`, …) |
+| `d{i,a}{obj}` `c{i,a}{obj}` | Text objects `w W " ' \`\` ( ) [ ] { } b B` (`ci"`, `daw`, `di(`) |
 
 `Enter` still submits from NORMAL mode, and modified app chords (model cycle,
 history search, external editor, …) pass through untouched. Any unmapped
@@ -60,10 +65,18 @@ printable key in NORMAL mode is swallowed, so it never leaks into the draft.
 
 The extension swaps omp's prompt editor for a `CustomEditor` subclass via
 `ctx.ui.setEditorComponent(...)`. omp's base `Editor` keeps its buffer in a
-hard-private field, so NORMAL-mode motions don't poke internal state — they
-replay the editor's own key sequences through `handleDraftEdit(...)`, leaving
-grapheme boundaries, line wrapping, undo, and autocomplete dismissal to the
-base editor. On `session_shutdown` the default editor is restored.
+hard-private field and exposes no cursor setter, so NORMAL mode never pokes
+internal state. Instead it computes motion, operator, and text-object targets
+as buffer offsets with pure, nvim-parity functions vendored from
+[`lajarre/pi-vim`](https://github.com/lajarre/pi-vim) (`src/vim/`), then walks
+the cursor to each target by replaying the editor's own arrow/delete key
+sequences through `handleDraftEdit(...)`. `src/vim/bridge.ts` converts between
+UTF-16 offsets and grapheme-step key counts, so line wrapping, grapheme
+boundaries, undo, and autocomplete dismissal all stay owned by the base editor.
+On `session_shutdown` the default editor is restored.
+
+The vendored files under `src/vim/` are copied verbatim (MIT) and are not
+edited in place; refresh them by re-vendoring from upstream.
 
 ## Develop
 
@@ -75,8 +88,9 @@ bun run smoke       # headless mode/motion checks
 
 ## Scope
 
-Deliberately a focused MVP: NORMAL/INSERT modes with core motions and a few
-operators. Not implemented: VISUAL mode, an ex line (`:`), registers/yank/paste,
-`f`/`t` char-find, text objects (`ci"`, `da{`), `.` repeat, `u`/`Ctrl+r` vim
-undo, and `{count}G` to an absolute line. See `lajarre/pi-vim` (upstream Pi) for
-the full-featured equivalent.
+NORMAL and INSERT modes with motions, char-find, paragraph and matching-pair
+motions, `d`/`c` operators, and text objects. Not implemented: VISUAL mode, an
+ex line (`:`), registers / yank / paste, `.` repeat, and vim-style `u` /
+`Ctrl+r` undo. See [`lajarre/pi-vim`](https://github.com/lajarre/pi-vim)
+(upstream Pi) for the full-featured equivalent this borrows its motion logic
+from.

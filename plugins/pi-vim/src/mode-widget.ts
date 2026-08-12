@@ -29,7 +29,7 @@ export class ModeWidget implements Component {
 
 	render(width: number): readonly string[] {
 		if (this.#cached && this.#cachedWidth === width) return this.#cached;
-		const label = this.#mode === "normal" ? " NORMAL " : " INSERT ";
+		const label = ` ${this.#mode.toUpperCase()} `;
 		// NORMAL uses an accent inverse block; INSERT stays muted so it reads as
 		// the resting state. `\x1b[7m` is reverse-video for the block look.
 		const styled =
