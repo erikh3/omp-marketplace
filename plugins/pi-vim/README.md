@@ -60,11 +60,17 @@ Motions accept a `{count}` prefix (e.g. `3j`, `12l`).
 | `f` `F` `t` `T` `;` `,` | Char find forward/back, till, and repeat |
 | `%` | Jump to matching `()` `[]` `{}` |
 | `gg` `G` `{count}gg` `{count}G` | First line / last line / absolute line |
-| `x` | Delete char(s) under cursor |
+| `_` `{count}_` | First non-blank of the current / counted line-down |
+| `gM` `{count}gM` | Halfway across the line's text (`{count}` = percentage, 1–100) |
+| `x` `{count}x` | Delete char(s) under the cursor forward |
+| `X` `{count}X` | Delete char(s) before the cursor (clamped at line start) |
 | `r{char}` | Replace char under cursor |
 | `s` | Delete char and enter INSERT |
+| `S` `{count}S` | Change whole line(s) and enter INSERT (same as `cc`) |
 | `dd` `cc` `{count}dd` | Delete / change whole line(s) |
 | `D` `C` | Delete / change to end of line |
+| `J` `{count}J` | Join line(s); single space at the boundary, leading blanks stripped |
+| `gJ` `{count}gJ` | Join line(s) without whitespace normalization |
 | `d{motion}` `c{motion}` | Operator + any motion above (`dw`, `d$`, `df.`, `d%`, `dj`, …) |
 | `d{i,a}{obj}` `c{i,a}{obj}` | Text objects `w W " ' \`\` ( ) [ ] { } b B` (`ci"`, `daw`, `di(`) |
 | `yy` `Y` `{count}yy` | Yank whole line(s) into the unnamed register |
@@ -72,6 +78,7 @@ Motions accept a `{count}` prefix (e.g. `3j`, `12l`).
 | `p` `P` `{count}p` | Paste after / before the cursor (charwise inline, linewise on new line(s)) |
 | `u` `{count}u` | Undo the last edit(s) |
 | `Ctrl+r` `{count}Ctrl+r` | Redo the last undone edit(s) — or open omp's prompt history (see below) |
+| `.` `{count}.` | Repeat the last change (`{count}` overrides the stored count) |
 
 `Enter` still submits from NORMAL mode, and modified app chords (model cycle,
 external editor, …) pass through untouched. Any unmapped printable key in
@@ -146,6 +153,77 @@ future line-address support and notify instead of dispatching; an unknown name
 notifies rather than reaching the model. EX editing never touches the undo
 timeline.
 
+## System clipboard
+
+Deletes, changes, and yanks fill vim's unnamed register and, by default, mirror
+to the OS clipboard; `p`/`P` read the OS clipboard first (falling back to the
+internal shadow when the last write was policy-skipped or a read is
+unavailable). The mirror is governed by `clipboardMirror` (see below):
+
+| `clipboardMirror` | Mirrors to the OS clipboard |
+| --- | --- |
+| `all` (default) | Every unnamed write — yanks and deletes/changes |
+| `yank` | Yanks only; deletes/changes stay in the internal shadow |
+| `never` | Nothing; the shadow is authoritative |
+
+The OS read is asynchronous, so pi-vim refreshes a read cache on entering
+NORMAL and after each mirror write; a `p` reads that cache. Every clipboard
+access is best-effort — a failure never breaks editing.
+
+## Configuration
+
+omp's settings schema has no `piVim.*` namespace, so pi-vim reads its own
+`pi-vim.json`: a global file in the agent dir (`~/.omp/agent/pi-vim.json`),
+overlaid by a project `.omp/pi-vim.json`. All keys are optional; a missing,
+malformed, or unknown value falls back to the default. The project file
+overrides the global per top-level key, **except** `modeChange` and
+`exCommand.copyInputToClipboard`, which are user-global only (they wield
+arbitrary shell / clipboard-exfiltration power, so a checked-in project file
+cannot enable them).
+
+Default-equivalent `pi-vim.json`:
+
+```json
+{
+  "clipboardMirror": "all",
+  "exCommand": { "piDispatch": true, "copyInputToClipboard": false },
+  "modeColors": {
+    "normal": "borderAccent",
+    "insert": "borderMuted",
+    "visual": "customMessageLabel",
+    "ex": "warning"
+  },
+  "labelSync": { "normal": "mode", "insert": "mode", "visual": "mode", "ex": "mode" },
+  "modeChange": {}
+}
+```
+
+| Key | Effect |
+| --- | --- |
+| `clipboardMirror` | OS-clipboard mirror policy (`all` / `yank` / `never`) |
+| `exCommand.piDispatch` | `false` makes the ex line quit-only (`:name` no longer dispatches `/name`) |
+| `exCommand.copyInputToClipboard` | `true` copies the composed prompt to the OS clipboard before each ex dispatch (global-only) |
+| `modeColors` | Theme foreground token per mode for the footer indicator + EX line |
+| `labelSync` | Per-mode footer paint policy (`mode` = mode color, `host` = host color) |
+| `modeChange.insert` / `modeChange.normal` | Shell command run on entering INSERT / any non-INSERT editing mode (global-only) |
+
+`modeChange` is typically used for automatic IME switching — point it at any CLI
+that changes your input method (e.g. `im-select`). The command runs
+asynchronously via your shell (`$SHELL -c`), fire-and-forget; stdio is discarded
+and failures are silenced so editing never blocks.
+
+> `borderSync` (per-mode editor **border** color) from upstream `lajarre/pi-vim`
+> is intentionally unsupported: omp's extension UI exposes no per-mode border
+> setter (only the whole active theme). `labelSync` / `modeColors` cover the
+> footer indicator, which pi-vim fully owns.
+
+## For other extensions
+
+pi-vim emits `pi-vim:mode-change` on `pi.events` with `{ mode, previousMode }`
+on every real transition, and the editor exposes `getMode()` returning
+`"normal"` / `"insert"` / `"visual"` / `"visual-line"` so a wrapping extension
+can tell the two visual sub-modes apart.
+
 ## How it works
 
 The extension swaps omp's prompt editor for a `CustomEditor` subclass via
@@ -186,8 +264,9 @@ bun test            # unit + integration suite (test/)
 
 NORMAL, INSERT, VISUAL, and VISUAL-LINE modes plus an EX command line, with
 motions, char-find, paragraph and matching-pair motions, `d`/`c`/`y` operators,
-text objects, visual selections, yank/paste through vim's unnamed register,
-`u` / `Ctrl+r` undo/redo, and `:` command dispatch. Not implemented: named
-registers, the system clipboard, and `.` repeat. See
+text objects, visual selections, yank/paste through vim's unnamed register with
+an OS-clipboard mirror, `u` / `Ctrl+r` undo/redo, `.` repeat, `J`/`gJ`,
+`_`/`gM`, and `:` command dispatch. Configurable via `pi-vim.json`. Not
+implemented: named registers, macros, and search (`/`, `n`). See
 [`lajarre/pi-vim`](https://github.com/lajarre/pi-vim) (upstream Pi) for the
 full-featured equivalent this borrows its motion logic from.

@@ -11,22 +11,27 @@ const LABELS: Record<VimMode, string> = {
 	"visual-line": "V-LINE",
 };
 
+/** Theme color token per mode plus the EX line color. Injected from config. */
+export interface ModeColorMap {
+	normal: ThemeColor;
+	insert: ThemeColor;
+	visual: ThemeColor;
+	ex: ThemeColor;
+}
+
 /**
- * Theme color token per mode, matching upstream `lajarre/pi-vim`'s palette:
- * INSERT is the muted border tone, NORMAL the accent border, both VISUAL modes
- * the custom-message label color, and EX the warning color. Each is applied as
- * reverse-video (see {@link ModeWidget.render}), so the token becomes the
- * block's fill and the text shows in the theme background.
+ * Default palette, matching upstream `lajarre/pi-vim`: INSERT the muted border
+ * tone, NORMAL the accent border, both VISUAL modes the custom-message label
+ * color, and EX the warning color. Applied as reverse-video (see
+ * {@link ModeWidget.render}), so the token becomes the block fill and the text
+ * shows in the theme background.
  */
-const COLORS: Record<VimMode, ThemeColor> = {
+export const DEFAULT_MODE_COLORS: ModeColorMap = {
 	normal: "borderAccent",
 	insert: "borderMuted",
 	visual: "customMessageLabel",
-	"visual-line": "customMessageLabel",
+	ex: "warning",
 };
-
-/** EX (execute) command line uses the warning color, like upstream. */
-const EX_COLOR: ThemeColor = "warning";
 
 /**
  * A one-line widget mounted below the editor that shows the active Vim mode,
@@ -43,9 +48,12 @@ export class ModeWidget implements Component {
 	/** The live ex command buffer (e.g. `":q"`), or `null` when not in ex mode. */
 	#exCommand: string | null = null;
 
-	constructor(mode: VimMode, theme: Theme) {
+	readonly #colors: ModeColorMap;
+
+	constructor(mode: VimMode, theme: Theme, colors: ModeColorMap = DEFAULT_MODE_COLORS) {
 		this.#mode = mode;
 		this.#theme = theme;
+		this.#colors = colors;
 	}
 
 	setMode(mode: VimMode): void {
@@ -74,7 +82,12 @@ export class ModeWidget implements Component {
 			this.#exCommand !== null
 				? ` EX ${this.#exCommand}_ `
 				: ` ${LABELS[this.#mode]} `;
-		const color = this.#exCommand !== null ? EX_COLOR : COLORS[this.#mode];
+		const color =
+			this.#exCommand !== null
+				? this.#colors.ex
+				: this.#mode === "visual-line"
+					? this.#colors.visual
+					: this.#colors[this.#mode];
 		const styled = this.#theme.fg(color, `\x1b[7m${label}\x1b[27m`);
 		const pad = Math.max(0, width - visibleWidth(styled));
 		this.#cached = [" ".repeat(pad) + styled];

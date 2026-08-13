@@ -95,6 +95,10 @@ function makeMocks() {
 		sendUserMessage(content: string) {
 			userMessages.push(content);
 		},
+		// Event bus used by the mode-change effects handler.
+		events: { emit: () => {}, on: () => () => {}, clear: () => {} },
+		// Shell exec used by modeChange hooks (no hooks configured in tests).
+		exec: async () => ({ code: 0, stdout: "", stderr: "" }),
 	} as unknown as ExtensionAPI;
 
 	/**

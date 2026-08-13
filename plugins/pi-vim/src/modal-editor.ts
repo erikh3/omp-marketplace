@@ -7,7 +7,8 @@ import { History, type Snapshot } from "./host/history.js";
 import { parseExLine } from "./ex/parser.js";
 import { dispatchEx, type ExHost } from "./ex/commands.js";
 import { type VimState, makeVimState, resetInput } from "./engine/state.js";
-import { runKey } from "./engine/dispatch.js";
+import { RegisterFile } from "./engine/registers.js";
+import { runKey, finalizeInsertRepeat } from "./engine/dispatch.js";
 
 /**
  * Raw terminal byte sequences replayed into the base editor. NORMAL-mode
@@ -23,6 +24,17 @@ const SEQ = {
 	down: "\x1b[B",
 	deleteForward: "\x1b[3~", // forward delete
 } as const;
+
+/**
+ * Rewrite the leading count digits of a recorded key sequence for `{count}.`.
+ * Strips any run of leading digit keys, then prepends `count`'s digits so the
+ * replayed command uses the new count.
+ */
+function withCount(keys: readonly string[], count: number): string[] {
+	let i = 0;
+	while (i < keys.length && /^[0-9]$/.test(keys[i] ?? "")) i++;
+	return [...String(count).split(""), ...keys.slice(i)];
+}
 
 /**
  * A {@link CustomEditor} that adds Vim NORMAL/INSERT modal editing to omp's
@@ -42,6 +54,18 @@ export class ModalVimEditor extends CustomEditor implements HostEffects {
 	#state: VimState = makeVimState();
 	/** Notified on every mode change so the host can repaint the indicator + cursor shape. */
 	onModeChange: ((mode: VimMode) => void) | undefined;
+	/**
+	 * Whether the ex line dispatches Pi slash commands. `false` (config
+	 * `exCommand.piDispatch=false`) makes the ex line quit-only: `:name`
+	 * notifies instead of dispatching. The quit family and `:!cmd` are
+	 * unaffected.
+	 */
+	exDispatchEnabled = true;
+	/**
+	 * Optional hook run just before an ex dispatch to copy the composed prompt
+	 * to the OS clipboard (config `exCommand.copyInputToClipboard=true`).
+	 */
+	copyPromptToClipboard: (() => void) | undefined;
 	/** Fired whenever the ex command buffer changes. */
 	onExCommandChange: ((command: string | null) => void) | undefined;
 	/** Dispatches a command line through the host. */
@@ -60,6 +84,24 @@ export class ModalVimEditor extends CustomEditor implements HostEffects {
 
 	get mode(): VimMode {
 		return this.#state.mode;
+	}
+
+	/**
+	 * Report the active mode for wrapping extensions. Distinct from the `mode`
+	 * getter so pi-compatible wrappers can call `getMode()` and tell the two
+	 * visual sub-modes apart.
+	 */
+	getMode(): VimMode {
+		return this.#state.mode;
+	}
+
+	/**
+	 * Inject the register file (with an OS-clipboard mirror). Called by the
+	 * extension after construction; the default is a shadow-only register so
+	 * `new ModalVimEditor(theme)` keeps working with no host wiring.
+	 */
+	setRegisterFile(registers: RegisterFile): void {
+		this.#state.registers = registers;
 	}
 
 	/** Enter a mode and fire {@link onModeChange} when it actually changed. */
@@ -142,6 +184,10 @@ export class ModalVimEditor extends CustomEditor implements HostEffects {
 			// instead of firing the app interrupt. Everything else is the base
 			// editor unchanged (typing, paste, history, autocomplete, submit).
 			if (this.#isEscape(data)) {
+				// Finalize any open dot-repeat recording BEFORE leaving INSERT so
+				// the closing Esc is captured and the buffer-changed check sees the
+				// completed session.
+				finalizeInsertRepeat(this.#state, this, data);
 				this.setMode("normal");
 				// Vim rests the NORMAL cursor ON a character, not past the last
 				// one, so leaving INSERT steps left one grapheme (unless already
@@ -226,9 +272,14 @@ export class ModalVimEditor extends CustomEditor implements HostEffects {
 		if (parse.kind === "empty") return;
 
 		const host: ExHost = {
-			runExCommand: (commandLine) => {
-				this.#runExWithRestore(commandLine);
-			},
+			// piDispatch=false → withhold the dispatcher so `:name` notifies instead
+			// of running a slash command. Quit family and `:!cmd` still work.
+			runExCommand: this.exDispatchEnabled
+				? (commandLine) => {
+						this.copyPromptToClipboard?.();
+						this.#runExWithRestore(commandLine);
+					}
+				: undefined,
 			notifyUser: (msg) => { this.notifyUser?.(msg); },
 			getCommandNames: () => this.getCommandNames?.() ?? new Set<string>(),
 			getText: () => this.getText(),
@@ -346,5 +397,25 @@ export class ModalVimEditor extends CustomEditor implements HostEffects {
 	/** Drop the entire vim undo/redo timeline (called when a submit ends the draft). */
 	clearHistory(): void {
 		this.#history.clear();
+	}
+
+	/**
+	 * Replay the last recorded change (`.`). Replays the stored raw keys through
+	 * {@link handleInput} under a `replaying` guard (so the replay is not itself
+	 * recorded) and as ONE undo unit. `count`, when non-null, replaces the
+	 * stored command's leading count digits.
+	 */
+	repeatChange(count: number | null): void {
+		const change = this.#state.lastChange;
+		if (change === null || change.keys.length === 0) return;
+		const keys = count === null ? change.keys : withCount(change.keys, count);
+		this.#state.replaying = true;
+		this.#history.begin(this.getText(), this.getCursor());
+		try {
+			for (const key of keys) this.handleInput(key);
+		} finally {
+			this.#state.replaying = false;
+			this.#history.commit(this.getText());
+		}
 	}
 }

@@ -306,3 +306,22 @@ describe("mode-change effects", () => {
 		expect(h.fx.modes).toEqual([]);
 	});
 });
+
+// ---------------------------------------------------------------------------
+// getMode() — wrapping-extension contract (distinguishes the two visual modes)
+// ---------------------------------------------------------------------------
+
+describe("getMode() reports the active mode for wrapping extensions", () => {
+	test("returns the current mode across transitions", () => {
+		const { ed } = createHarness();
+		expect(ed.getMode()).toBe("insert");
+		ed.handleInput("\x1b"); // → NORMAL
+		expect(ed.getMode()).toBe("normal");
+		ed.handleInput("v"); // → VISUAL
+		expect(ed.getMode()).toBe("visual");
+		ed.handleInput("V"); // → VISUAL-LINE
+		expect(ed.getMode()).toBe("visual-line");
+		ed.handleInput("\x1b"); // → NORMAL
+		expect(ed.getMode()).toBe("normal");
+	});
+});

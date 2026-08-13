@@ -1,7 +1,12 @@
 import type { ExtensionAPI } from "@oh-my-pi/pi-coding-agent";
+import { settings } from "@oh-my-pi/pi-coding-agent";
 import { BUILTIN_SLASH_COMMAND_RESERVED_NAMES } from "@oh-my-pi/pi-coding-agent/slash-commands/builtin-registry";
 import { ModalVimEditor, type VimMode } from "./modal-editor.js";
 import { ModeWidget } from "./mode-widget.js";
+import { loadPiVimConfig, DEFAULT_CONFIG, type PiVimConfig } from "./host/config.js";
+import { makeClipboardPort } from "./host/clipboard.js";
+import { makeModeChangeHandler } from "./host/mode-effects.js";
+import { RegisterFile } from "./engine/registers.js";
 
 /** DECSCUSR cursor shapes: steady block for NORMAL/VISUAL, blinking bar for INSERT. */
 const CURSOR_SHAPE: Record<VimMode, string> = {
@@ -28,6 +33,22 @@ export default function piVim(pi: ExtensionAPI): void {
 	pi.on("session_start", async (_event, ctx) => {
 		if (!ctx.hasUI) return;
 
+		// Load pi-vim's own config (omp Settings can't hold a `piVim.*` namespace).
+		// Fall back to defaults if the settings singleton isn't initialised.
+		let config: PiVimConfig;
+		try {
+			config = loadPiVimConfig(settings.getAgentDir(), settings.getCwd());
+		} catch (error) {
+			config = DEFAULT_CONFIG;
+			log.debug?.(`pi-vim: config load failed, using defaults: ${String(error)}`);
+		}
+
+		// OS-clipboard port; refreshed on NORMAL entry so a `p` reads a warm
+		// cache. Always built (paste read-on-put and copyInputToClipboard need it);
+		// the register's `clipboardMirror` policy decides whether writes mirror.
+		const clip = makeClipboardPort();
+		const onModeChangeEffects = makeModeChangeHandler(pi, config);
+
 		// One stable widget instance; the factory always returns it so
 		// re-asserting the widget on a mode change repaints without churning
 		// component identity.
@@ -35,13 +56,22 @@ export default function piVim(pi: ExtensionAPI): void {
 		let currentMode: VimMode = "insert";
 
 		const applyMode = (mode: VimMode): void => {
+			const previousMode = currentMode;
 			currentMode = mode;
 			widget?.setMode(mode);
 			// Re-assert the widget so the host rebuilds the below-editor lane and
 			// requests a render; the factory hands back the same instance.
-			ctx.ui.setWidget(WIDGET_KEY, (_tui, theme) => (widget ??= new ModeWidget(mode, theme)), {
-				placement: "belowEditor",
-			});
+			ctx.ui.setWidget(
+				WIDGET_KEY,
+				(_tui, theme) => (widget ??= new ModeWidget(mode, theme, config.modeColors)),
+				{ placement: "belowEditor" },
+			);
+			// Warm the clipboard read cache when entering NORMAL so a `p` sees an
+			// up-to-date OS clipboard without a synchronous read.
+			if (mode === "normal") clip.refresh();
+			// Emit the mode-change event + run any configured shell hook, but not
+			// for the initial INSERT assertion (no real transition).
+			if (mode !== previousMode) onModeChangeEffects(mode, previousMode);
 			// Best-effort cursor-shape hint; harmless on terminals that ignore it.
 			try {
 				process.stdout.write(CURSOR_SHAPE[mode]);
@@ -52,10 +82,11 @@ export default function piVim(pi: ExtensionAPI): void {
 
 		const applyEx = (command: string | null): void => {
 			widget?.setExCommand(command);
-			// Re-assert the widget the same way applyMode does.
-			ctx.ui.setWidget(WIDGET_KEY, (_tui, theme) => (widget ??= new ModeWidget(currentMode, theme)), {
-				placement: "belowEditor",
-			});
+			ctx.ui.setWidget(
+				WIDGET_KEY,
+				(_tui, theme) => (widget ??= new ModeWidget(currentMode, theme, config.modeColors)),
+				{ placement: "belowEditor" },
+			);
 			// Block cursor while ex is active; restore mode shape when cleared.
 			try {
 				process.stdout.write(command !== null ? "\x1b[2 q" : CURSOR_SHAPE[currentMode]);
@@ -82,6 +113,16 @@ export default function piVim(pi: ExtensionAPI): void {
 					...BUILTIN_SLASH_COMMAND_RESERVED_NAMES,
 					...pi.getCommands().map((c) => c.name),
 				]);
+				// Inject the register file with the OS-clipboard port; the
+				// `clipboardMirror` policy decides whether writes actually mirror.
+				editor.setRegisterFile(new RegisterFile(clip.port, config.clipboardMirror));
+				editor.exDispatchEnabled = config.exCommand.piDispatch;
+				if (config.exCommand.copyInputToClipboard) {
+					editor.copyPromptToClipboard = () => {
+						const text = editor.getText();
+						if (text.length > 0) clip.port.write(text);
+					};
+				}
 				return editor;
 			});
 			// Fresh editor starts in INSERT; reflect that immediately.
