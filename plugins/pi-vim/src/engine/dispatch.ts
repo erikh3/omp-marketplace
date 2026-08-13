@@ -5,9 +5,10 @@
  * `runKey(state, host, history, key)` is the SOLE owner of History.begin/commit.
  *
  * Task 7: engine units return EditIntent[] instead of calling ctx.host.
- * Exception: `u`/`Ctrl+r` still call ctx.host.undo/redo directly because they
- * are timeline operations (using History.undo/redo + setText restore) that
- * cannot be expressed as EditIntents.
+ * Exception: `u`/`Ctrl+r` still call ctx.host.undo/redo directly, and Enter
+ * calls ctx.host.clearHistory, because they are timeline operations (using
+ * History.undo/redo/clear + setText restore) that cannot be expressed as
+ * EditIntents.
  */
 
 import { canonicalKeyId, parseKey, matchesKey } from "@oh-my-pi/pi-tui";
@@ -212,7 +213,8 @@ export interface EvaluateResult {
  * Returns `{ intents, undoUnit }`. `undoUnit: true` for INSERT forwards and
  * completed NORMAL/VISUAL commands (including pure motions — `history.commit`'s
  * text-equality guard discards no-ops so the undo stack stays clean).
- * `undoUnit: false` for incomplete commands, Esc, and the timeline ops u/C-r.
+ * `undoUnit: false` for incomplete commands, Esc, Enter (which clears the vim
+ * timeline on submit), and the timeline ops u/C-r.
  */
 export function evaluate(ctx: Ctx, data: string): EvaluateResult {
 	const parsed = parseKey(data);
@@ -238,15 +240,33 @@ export function evaluate(ctx: Ctx, data: string): EvaluateResult {
 		return { intents: [{ kind: "forward", data }], undoUnit: false };
 	}
 
-	// ── 2. Ctrl+r (redo) ────────────────────────────────────────────────────
-	// Claimed BEFORE app-chord passthrough so it doesn't reach host history search.
+	// ── 2. Ctrl+r — redo, or prompt-history passthrough ─────────────────────
+	// Claimed BEFORE app-chord passthrough so a redo never leaks to the host.
+	// With text in the buffer, or a non-empty vim timeline, it redoes. On an
+	// empty buffer with no vim history there is nothing to redo, so it is
+	// forwarded to the host and opens omp's prompt-history search.
 	if (canonical === "ctrl+r") {
-		ctx.host.redo(takeCount(ctx.state));
+		const count = takeCount(ctx.state); // consume before resetInput clears it
 		resetInput(ctx.state);
+		if (ctx.host.getText() === "" && !ctx.host.hasHistory()) {
+			return { intents: [{ kind: "forward", data }], undoUnit: false };
+		}
+		ctx.host.redo(count);
 		return { intents: [], undoUnit: false };
 	}
 
-	// ── 3. App chords + Enter ────────────────────────────────────────────────
+	// ── 3. Enter — submit; ends the draft and clears the vim timeline ────────
+	// A submit starts a fresh draft on the host, so the undo/redo timeline must
+	// reset. This is also what lets a later Ctrl+r on the emptied buffer reach
+	// prompt-history search. `undoUnit: false`: opening a history unit here would
+	// re-push the pre-submit text onto the stack, undoing the clear.
+	if (canonical === "enter" || data === "\r" || data === "\n") {
+		resetInput(ctx.state);
+		ctx.host.clearHistory();
+		return { intents: [{ kind: "forward", data }], undoUnit: false };
+	}
+
+	// ── 4. Other app chords ──────────────────────────────────────────────────
 	if (isAppChord(data)) {
 		resetInput(ctx.state);
 		return { intents: [{ kind: "forward", data }], undoUnit: true };

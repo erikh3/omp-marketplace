@@ -59,6 +59,27 @@ export class History {
 	}
 
 	/**
+	 * True when the timeline holds anything that a redo/undo could act on —
+	 * either committed undo steps or previously-undone redo steps.  An open
+	 * pending snapshot does not count: it only becomes history once committed.
+	 */
+	hasHistory(): boolean {
+		return this.#undo.length > 0 || this.#redo.length > 0;
+	}
+
+	/**
+	 * Drop the entire timeline (undo + redo + any open pending change).  Used
+	 * when a submit ends the current draft: the next draft starts with a blank
+	 * history, so `Ctrl+r` on the emptied buffer falls through to the host's
+	 * prompt-history search instead of resurrecting the submitted text.
+	 */
+	clear(): void {
+		this.#undo.length = 0;
+		this.#redo.length = 0;
+		this.#pending = null;
+	}
+
+	/**
 	 * Pop the most-recent undo entry and stash `current` for redo.
 	 * Returns the snapshot to restore, or `null` if the stack is empty.
 	 */

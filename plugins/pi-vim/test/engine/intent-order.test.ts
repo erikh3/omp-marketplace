@@ -52,9 +52,11 @@ function makeCtx(
 		runEx: (_l: unknown) => { throw new Error("runEx called imperatively"); },
 		notify: (_m: unknown) => { throw new Error("notify called imperatively"); },
 		getCommandNames: () => new Set<string>(),
-		// undo/redo are still called directly (timeline ops)
+		// undo/redo/history are still called directly (timeline ops)
 		undo: (_n: number) => {},
 		redo: (_n: number) => {},
+		hasHistory: () => false,
+		clearHistory: () => {},
 	} satisfies HostEffects;
 
 	return { state, host };
