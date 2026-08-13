@@ -166,12 +166,6 @@ export class ModalVimEditor extends CustomEditor implements HostEffects {
 
 	// --- ex mode -----------------------------------------------------------
 
-	/** Open the ex command buffer. */
-	#startEx(): void {
-		this.#state.exBuffer = ":";
-		this.onExCommandChange?.(":");
-	}
-
 	/** Close the ex command buffer without submitting. */
 	#clearEx(): void {
 		this.#state.exBuffer = null;
