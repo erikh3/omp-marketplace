@@ -142,6 +142,30 @@ export function actionX(ctx: Ctx, count: number): EditIntent[] {
 	return [];
 }
 
+/**
+ * `X` / `{count}X` — delete `count` graphemes before the cursor on the current
+ * line, clamping at column 0. No-op at column 0. The cursor stays on the same
+ * grapheme (now shifted left).
+ */
+export function actionBigX(ctx: Ctx, count: number): EditIntent[] {
+	const lines = ctx.host.getLines();
+	const { line, col } = ctx.host.getCursor();
+	const text = lines[line] ?? "";
+	if (col <= 0) return [];
+	// Walk `count` graphemes leftward from the cursor.
+	const starts = getLineGraphemes(text).map((g) => g.start);
+	let target = col;
+	for (let i = 0; i < count; i++) {
+		const prev = starts.filter((s) => s < target).pop();
+		if (prev === undefined) { target = 0; break; }
+		target = prev;
+	}
+	const lo = lineColToAbs(lines, line, target);
+	const hi = lineColToAbs(lines, line, col);
+	if (hi > lo) return deleteCharwise(ctx, lo, hi);
+	return [];
+}
+
 /** `s` — delete `count` graphemes, then enter INSERT. */
 export function actionS(ctx: Ctx, count: number): EditIntent[] {
 	return [...actionX(ctx, count), { kind: "setMode", mode: "insert" }];

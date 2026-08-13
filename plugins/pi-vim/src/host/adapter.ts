@@ -91,6 +91,12 @@ export interface HostEffects extends BufferView {
 	 * current draft.
 	 */
 	clearHistory(): void;
+	/**
+	 * Replay the last recorded change (`.` dot-repeat). `count`, when non-null,
+	 * overrides the stored command's leading count. Host-side because a replay
+	 * re-enters the key pipeline and may span an insert session.
+	 */
+	repeatChange(count: number | null): void;
 }
 
 // ---------------------------------------------------------------------------

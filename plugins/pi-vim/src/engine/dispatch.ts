@@ -54,6 +54,8 @@ import {
 	motionG,
 	motionGg,
 	charFindMotion,
+	motionUnderscore,
+	motionGM,
 } from "./motion-registry.js";
 
 import {
@@ -73,6 +75,7 @@ import {
 	actionV,
 	actionBigV,
 	actionX,
+	actionBigX,
 	actionS,
 	actionBigD,
 	actionBigC,
@@ -184,6 +187,7 @@ const motionFns: Partial<Record<string, MotionFn>> = {
 	"}": motionRBrace,
 	"%": motionPercent,
 	"l-op": motionLOp,
+	_: motionUnderscore,
 };
 
 /** Apply an operator to a charwise [lo, hi) range; reset input unless `c`. */
@@ -282,6 +286,26 @@ export function evaluate(ctx: Ctx, data: string): EvaluateResult {
 		return { intents: [], undoUnit: false };
 	}
 
+	// ── 4b. Dot-repeat ───────────────────────────────────────────────────────
+	// `.` at a command boundary replays the last change (host-side, since a
+	// replay re-enters runKey and may span an insert session). `{count}.`
+	// overrides the stored command's leading count. Not undo-bracketed here:
+	// the host replays through handleInput, which owns its own boundaries.
+	// Allowed with a leading count pending (`3.`), but not mid multi-key command.
+	if (
+		data === "." &&
+		ctx.state.input.operator === null &&
+		ctx.state.input.textObject === null &&
+		ctx.state.input.charPending === null &&
+		!ctx.state.input.replacePending &&
+		!ctx.state.input.pendingG
+	) {
+		const count = ctx.state.input.count === "" ? null : takeCount(ctx.state);
+		resetInput(ctx.state);
+		ctx.host.repeatChange(count);
+		return { intents: [], undoUnit: false };
+	}
+
 	// ── 5. Pending: replace ──────────────────────────────────────────────────
 	if (ctx.state.input.replacePending) {
 		return { intents: resolveReplace(ctx, data), undoUnit: true };
@@ -306,15 +330,25 @@ export function evaluate(ctx: Ctx, data: string): EvaluateResult {
 	if (ctx.state.input.pendingG) {
 		ctx.state.input.pendingG = false;
 		if (data === "g") {
-			const count = ctx.state.input.count;
-			const hasCount = count !== "";
+			const hasCount = ctx.state.input.count !== "";
 			const n = takeCount(ctx.state);
 			const motion = motionGg(ctx, n, hasCount);
-			ctx.state.input.count = "";
 			return {
 				intents: [{ kind: "moveCursor", to: { line: motion.targetLine, col: motion.targetCol } }],
 				undoUnit: false,
 			};
+		}
+		if (data === "M") {
+			const hasCount = ctx.state.input.count !== "";
+			const n = takeCount(ctx.state);
+			const motion = motionGM(ctx, n, hasCount);
+			return {
+				intents: [{ kind: "moveCursor", to: { line: motion.targetLine, col: motion.targetCol } }],
+				undoUnit: false,
+			};
+		}
+		if (data === "J") {
+			return { intents: joinLines(ctx, takeCount(ctx.state), false), undoUnit: true };
 		}
 		ctx.state.input.count = "";
 		return { intents: [], undoUnit: false };
@@ -350,6 +384,12 @@ export function evaluate(ctx: Ctx, data: string): EvaluateResult {
  * Opens exactly one History unit when `undoUnit: true`, applies all intents
  * in strict emission order, then commits. `history.commit` is a no-op when
  * the buffer text did not change (pure motions, empty-register paste, etc.).
+ *
+ * Also drives dot-repeat recording: while not replaying, each key is appended
+ * to the in-flight recording (started lazily at a command boundary), and when
+ * a command completes the recording is finalized into `state.lastChange` iff
+ * the buffer text actually changed and the editor did not just enter INSERT
+ * (an insert session is finalized host-side on the closing Esc).
  */
 export function runKey(
 	state: VimState,
@@ -357,10 +397,59 @@ export function runKey(
 	history: History,
 	key: string,
 ): void {
+	if (!state.replaying) noteKeyForRepeat(state, host, key);
 	const { intents, undoUnit } = evaluate({ state, host }, key);
-	if (undoUnit) history.begin(host.getText(), host.getCursor());
+	// During replay the outer repeatChange owns a single undo bracket, so inner
+	// begin/commit is suppressed to keep the whole replay one undo unit.
+	const bracket = undoUnit && !state.replaying;
+	if (bracket) history.begin(host.getText(), host.getCursor());
 	applyIntents(host, intents);
-	if (undoUnit) history.commit(host.getText());
+	if (bracket) history.commit(host.getText());
+	if (!state.replaying) finalizeRepeatIfComplete(state, host);
+}
+
+// ---------------------------------------------------------------------------
+// Dot-repeat recording
+// ---------------------------------------------------------------------------
+
+/** Append `key` to the in-flight recording, starting one at a command boundary. */
+function noteKeyForRepeat(state: VimState, host: HostEffects, key: string): void {
+	if (state.recording === null) {
+		state.recording = { keys: [], startText: host.getText() };
+	}
+	state.recording.keys.push(key);
+}
+
+/**
+ * At a completed command boundary, promote the recording to `lastChange` when
+ * the buffer changed. Skips while a command is still pending (multi-key
+ * assembly) and while an insert session is open (INSERT is finalized on Esc,
+ * host-side, via {@link finalizeInsertRepeat}).
+ */
+function finalizeRepeatIfComplete(state: VimState, host: HostEffects): void {
+	if (state.recording === null) return;
+	if (state.mode === "insert") return; // insert session still open
+	if (hasPending(state)) return; // multi-key command mid-assembly
+	const changed = host.getText() !== state.recording.startText;
+	if (changed) {
+		state.lastChange = { keys: [...state.recording.keys] };
+	}
+	state.recording = null;
+}
+
+/**
+ * Finalize an insert-session recording when INSERT closes (called host-side on
+ * the Esc that leaves INSERT). Appends the closing key so a replay re-enters
+ * and exits INSERT, then records iff the buffer changed.
+ */
+export function finalizeInsertRepeat(state: VimState, host: HostEffects, closeKey: string): void {
+	if (state.replaying || state.recording === null) return;
+	state.recording.keys.push(closeKey);
+	const changed = host.getText() !== state.recording.startText;
+	if (changed) {
+		state.lastChange = { keys: [...state.recording.keys] };
+	}
+	state.recording = null;
 }
 
 // ---------------------------------------------------------------------------
@@ -587,6 +676,61 @@ function applyLinewiseFromMotion(ctx: Ctx, op: Operator, motion: MotionResult): 
 	return intents;
 }
 
+/**
+ * `J` / `gJ` — join the current line with the next `max(count, 2) - 1` lines.
+ *
+ * `normalize` (`J`): strip each joined line's leading whitespace and insert a
+ * single space at the boundary, except when the upper text is empty or already
+ * ends in whitespace. `gJ` (`normalize=false`): concatenate raw. The cursor
+ * lands on the first join boundary (the inserted space for `J`, the first
+ * joined character for `gJ`). No-op when there is no following line.
+ */
+function joinLines(ctx: Ctx, count: number, normalize: boolean): EditIntent[] {
+	const lines = ctx.host.getLines();
+	const { line } = ctx.host.getCursor();
+	const last = lines.length - 1;
+	if (line >= last) { resetInput(ctx.state); return []; } // nothing below to join
+	// Join count lines total (min 2); clamp to buffer end.
+	const joinCount = Math.max(2, count);
+	const bottom = Math.min(last, line + joinCount - 1);
+
+	let joined = lines[line] ?? "";
+	// Vim lands the cursor on the LAST join boundary (the inserted space for
+	// `J`, the first char of the last joined line for `gJ`).
+	let boundary = joined.length;
+	for (let i = line + 1; i <= bottom; i++) {
+		const nextRaw = lines[i] ?? "";
+		if (normalize) {
+			const next = nextRaw.replace(/^\s+/, "");
+			const needsSpace = joined.length > 0 && !/\s$/.test(joined);
+			boundary = joined.length; // the inserted space (or the seam if none)
+			joined = needsSpace ? `${joined} ${next}` : joined + next;
+		} else {
+			boundary = joined.length; // first char of the joined line
+			joined = joined + nextRaw;
+		}
+	}
+	const cursorCol = boundary;
+
+	const startAbs = lineColToAbs(lines, line, 0);
+	const endAbs = lineColToAbs(lines, bottom, (lines[bottom] ?? "").length);
+	resetInput(ctx.state);
+	return [
+		{ kind: "replaceRange", range: { start: startAbs, end: endAbs }, text: joined },
+		{ kind: "moveCursor", to: { line, col: cursorCol } },
+	];
+}
+
+/**
+ * `S` / `{count}S` — change `count` whole lines: delete their content down to a
+ * single empty line and enter INSERT. Identical to `cc`, reusing the linewise
+ * change operator.
+ */
+function changeWholeLines(ctx: Ctx, count: number): EditIntent[] {
+	const { line } = ctx.host.getCursor();
+	return applyLinewiseOp(ctx, "c", line, line + count - 1);
+}
+
 // ---------------------------------------------------------------------------
 // Visual non-motion key handler
 // ---------------------------------------------------------------------------
@@ -775,7 +919,10 @@ function dispatchNormalAction(ctx: Ctx, name: string): EditIntent[] {
 		case ";": return repeatCharFind(ctx, false);
 		case ",": return repeatCharFind(ctx, true);
 		case "x": return actionX(ctx, takeCount(ctx.state));
+		case "X": return actionBigX(ctx, takeCount(ctx.state));
 		case "s": return actionS(ctx, takeCount(ctx.state));
+		case "S": return changeWholeLines(ctx, takeCount(ctx.state));
+		case "J": return joinLines(ctx, takeCount(ctx.state), true);
 		case "D": return actionBigD(ctx);
 		case "C": return actionBigC(ctx);
 		case "Y": return actionBigY(ctx, takeCount(ctx.state));

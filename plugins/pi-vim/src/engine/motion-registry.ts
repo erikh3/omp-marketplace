@@ -261,6 +261,38 @@ export function motionCaret(ctx: Ctx, _count: number): MotionResult {
 	return makeResult(lines, line, col, false, false);
 }
 
+/**
+ * `_` / `{count}_` — first non-whitespace of the current line, or of the
+ * `count`-th line downward (count=1 → current). Linewise, so under an operator
+ * it selects whole lines like `j`/`k`.
+ */
+export function motionUnderscore(ctx: Ctx, count: number): MotionResult {
+	const lines = ctx.host.getLines();
+	const { line } = ctx.host.getCursor();
+	const targetLine = Math.min(lines.length - 1, line + Math.max(0, count - 1));
+	const col = firstNonWsCol(lines, targetLine);
+	return makeResult(lines, targetLine, col, false, true);
+}
+
+/**
+ * `gM` / `{count}gM` — move to the halfway point of the current line's text.
+ * A count of 1-100 targets that percentage of the line instead (nvim: higher
+ * counts clamp to 100%). Text is measured in graphemes, not screen cells; an
+ * empty line stays at column 0. Charwise (an operator selects up to the point).
+ */
+export function motionGM(ctx: Ctx, count: number, hasCount: boolean): MotionResult {
+	const lines = ctx.host.getLines();
+	const { line } = ctx.host.getCursor();
+	const text = lines[line] ?? "";
+	const graphemes = getLineGraphemes(text);
+	const n = graphemes.length;
+	if (n === 0) return makeResult(lines, line, 0, false, false);
+	const pct = hasCount ? Math.min(100, Math.max(1, count)) : 50;
+	const gIdx = Math.min(n, Math.floor((n * pct) / 100));
+	const col = gIdx <= 0 ? 0 : gIdx >= n ? text.length : (graphemes[gIdx]?.start ?? text.length);
+	return makeResult(lines, line, col, false, false);
+}
+
 export function motionDollar(ctx: Ctx, _count: number): MotionResult {
 	const lines = ctx.host.getLines();
 	const { line } = ctx.host.getCursor();

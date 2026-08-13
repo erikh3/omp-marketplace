@@ -29,7 +29,7 @@ import type { Operator } from "./state.js";
 export function deleteCharwise(ctx: Ctx, lo: number, hi: number): EditIntent[] {
 	if (hi <= lo) return [];
 	const text = ctx.host.getText().slice(lo, hi);
-	ctx.state.registers.set({ text, linewise: false });
+	ctx.state.registers.set({ text, linewise: false }, "delete");
 	return [{ kind: "replaceRange", range: { start: lo, end: hi }, text: "" }];
 }
 
@@ -39,7 +39,7 @@ export function deleteCharwise(ctx: Ctx, lo: number, hi: number): EditIntent[] {
  */
 export function yankCharwise(ctx: Ctx, lo: number, hi: number): EditIntent[] {
 	const text = ctx.host.getText().slice(lo, hi);
-	ctx.state.registers.set({ text, linewise: false });
+	ctx.state.registers.set({ text, linewise: false }, "yank");
 	const { line, col } = absToLineCol(ctx.host.getLines(), lo);
 	return [{ kind: "moveCursor", to: { line, col } }];
 }
@@ -76,7 +76,7 @@ function deleteLinewise(
 	}
 	// Capture the linewise payload BEFORE the delete intent is emitted.
 	const payload = `${lines.slice(s, e + 1).join("\n")}\n`;
-	ctx.state.registers.set({ text: payload, linewise: true });
+	ctx.state.registers.set({ text: payload, linewise: true }, "delete");
 	return [{ kind: "replaceRange", range: { start: lo, end: hi }, text: "" }];
 }
 
@@ -97,7 +97,7 @@ function changeLinewise(
 	const lo = lineColToAbs(lines, s, 0);
 	const hi = lineColToAbs(lines, e, (lines[e] ?? "").length);
 	const payload = `${lines.slice(s, e + 1).join("\n")}\n`;
-	ctx.state.registers.set({ text: payload, linewise: true });
+	ctx.state.registers.set({ text: payload, linewise: true }, "delete");
 	return [
 		{ kind: "replaceRange", range: { start: lo, end: hi }, text: "" },
 		{ kind: "setMode", mode: "insert" },
@@ -117,10 +117,10 @@ function yankLinewise(
 	const last = lines.length - 1;
 	const s = Math.max(0, Math.min(startLine, last));
 	const e = Math.max(s, Math.min(endLine, last));
-	ctx.state.registers.set({
-		text: `${lines.slice(s, e + 1).join("\n")}\n`,
-		linewise: true,
-	});
+	ctx.state.registers.set(
+		{ text: `${lines.slice(s, e + 1).join("\n")}\n`, linewise: true },
+		"yank",
+	);
 	const text = lines[s] ?? "";
 	const col = isBlankLine(text) ? 0 : findFirstNonWhitespaceColumn(text);
 	return [{ kind: "moveCursor", to: { line: s, col } }];

@@ -57,6 +57,7 @@ function makeCtx(
 		redo: (_n: number) => {},
 		canRedo: () => false,
 		clearHistory: () => {},
+		repeatChange: (_n: number | null) => {},
 	} satisfies HostEffects;
 
 	return { state, host };

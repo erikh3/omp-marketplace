@@ -108,14 +108,22 @@ export const normalKeymap: Readonly<Record<string, Command>> = {
 
 	// Edits
 	x: { type: "action", name: "x" },
+	X: { type: "action", name: "X" },
 	s: { type: "action", name: "s" },
+	S: { type: "action", name: "S" },
 	r: { type: "action", name: "r" },
 	D: { type: "action", name: "D" },
 	C: { type: "action", name: "C" },
 	Y: { type: "action", name: "Y" },
+	J: { type: "action", name: "J" },
 	p: { type: "action", name: "p" },
 	P: { type: "action", name: "P" },
 
+	// First non-whitespace (counted line-down); linewise under an operator.
+	_: { type: "motion", name: "_" },
+
+	// Dot-repeat
+	".": { type: "action", name: "." },
 	// Undo / redo
 	u: { type: "action", name: "u" },
 	// ctrl+r is handled separately (canonical key id)
@@ -160,6 +168,7 @@ export const operatorKeymap: Readonly<Record<string, Command>> = {
 	// Line jumps (linewise under operator)
 	g: { type: "motion-gg" },
 	G: { type: "motion-G" },
+	_: { type: "motion", name: "_" },
 };
 
 /**

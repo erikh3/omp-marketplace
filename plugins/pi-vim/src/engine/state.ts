@@ -50,11 +50,15 @@ export interface InputState {
 }
 
 /**
- * Snapshot of a completed mutating command for `.` repeat.
- * The evaluator copies `input.keys` into `lastChange` at the command boundary.
- * Unused today; present so `.` can be wired without new state fields.
+ * Snapshot of a completed mutating command for `.` repeat: the exact raw key
+ * sequence that produced the change (including any leading count digits and,
+ * for an insert session, the typed text and the closing `Esc`). Replayed
+ * verbatim by `.`; `{count}.` rewrites the leading count before replay.
  */
 export type RecordedCommand = { keys: readonly string[] };
+
+/** In-flight dot-repeat recording: keys seen so far + pre-command buffer text. */
+export type RecordingState = { keys: string[]; startText: string };
 
 /** Complete modal-editor state — the one struct owning every piece of mutable vim state. */
 export interface VimState {
@@ -69,6 +73,19 @@ export interface VimState {
 	lastCharMotion: { motion: CharMotion; char: string } | null;
 	/** Ex command buffer (`":"…`); null when ex mode is inactive. */
 	exBuffer: string | null;
+	/**
+	 * Open dot-repeat recording for the command in flight: the raw keys seen so
+	 * far plus the buffer text when the command started. Finalized into
+	 * {@link lastChange} at the command boundary when the buffer actually
+	 * changed. `null` when no command is being recorded.
+	 */
+	recording: RecordingState | null;
+	/**
+	 * True while `.` is replaying {@link lastChange}. Freezes change recording
+	 * and inner undo bracketing so a replay never overwrites the command it is
+	 * repeating and lands as a single undo unit.
+	 */
+	replaying: boolean;
 }
 
 /** Construct a fresh InputState with all fields zeroed. */
@@ -86,15 +103,17 @@ export function makeInputState(): InputState {
 }
 
 /** Construct the initial VimState (INSERT mode, no pending input, empty register). */
-export function makeVimState(): VimState {
+export function makeVimState(registers: RegisterFile = new RegisterFile()): VimState {
 	return {
 		mode: "insert",
 		input: makeInputState(),
 		visualAnchor: null,
-		registers: new RegisterFile(),
+		registers,
 		lastChange: null,
 		lastCharMotion: null,
 		exBuffer: null,
+		recording: null,
+		replaying: false,
 	};
 }
 
