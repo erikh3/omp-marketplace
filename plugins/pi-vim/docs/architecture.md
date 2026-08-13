@@ -2,8 +2,7 @@
 
 Design for a ground-up internal re-architecture of the `pi-vim` plugin.
 
-**Status: design only.** Nothing here is implemented yet. This document is the
-blueprint the implementation phase follows.
+**Status: implemented.** The refactor is complete; the as-built module layout matches §8 (`src/engine/`, `src/host/`, `src/ex/`, vendored `src/vim/`).
 
 **Hard contract: behavior-preserving.** The 698-test suite under
 `plugins/pi-vim/test/` (see `docs/test-architecture.md`) is the regression
