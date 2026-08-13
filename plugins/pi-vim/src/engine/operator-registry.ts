@@ -53,7 +53,7 @@ export function yankCharwise(ctx: Ctx, lo: number, hi: number): EditIntent[] {
  * Adjusts lo/hi to include the right newlines (BOF/EOF aware).
  * Explicitly sets the linewise register to the deleted lines.
  */
-export function deleteLinewise(
+function deleteLinewise(
 	ctx: Ctx,
 	startLine: number,
 	endLine: number,
@@ -85,7 +85,7 @@ export function deleteLinewise(
  * INSERT mode. The line survives; only its text (and joining newlines) is
  * removed. Saves the collapsed range linewise in the register.
  */
-export function changeLinewise(
+function changeLinewise(
 	ctx: Ctx,
 	startLine: number,
 	endLine: number,
@@ -108,7 +108,7 @@ export function changeLinewise(
  * Yank whole lines `[startLine, endLine]` linewise.
  * Buffer is NOT modified; cursor parks at the first non-blank of startLine.
  */
-export function yankLinewise(
+function yankLinewise(
 	ctx: Ctx,
 	startLine: number,
 	endLine: number,

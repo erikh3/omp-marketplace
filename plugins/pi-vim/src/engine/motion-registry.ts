@@ -47,7 +47,7 @@ export interface MotionResult {
 }
 
 /** Build a MotionResult from a (line, col) pair in the current buffer. */
-export function makeResult(
+function makeResult(
 	lines: readonly string[],
 	targetLine: number,
 	targetCol: number,
@@ -71,7 +71,7 @@ export function graphemeLenAt(text: string, abs: number): number {
 }
 
 /** Column of the first non-whitespace char on a line, or 0 for blank. */
-export function firstNonWsCol(lines: readonly string[], lineIdx: number): number {
+function firstNonWsCol(lines: readonly string[], lineIdx: number): number {
 	const text = lines[lineIdx] ?? "";
 	return isBlankLine(text) ? 0 : findFirstNonWhitespaceColumn(text);
 }
@@ -80,7 +80,7 @@ export function firstNonWsCol(lines: readonly string[], lineIdx: number): number
  * Word motion target (line, col) after `count` steps — the extracted
  * `#wordTargetAbs` logic from `modal-editor.ts`.
  */
-export function wordTargetLineCol(
+function wordTargetLineCol(
 	lines: readonly string[],
 	line: number,
 	col: number,
