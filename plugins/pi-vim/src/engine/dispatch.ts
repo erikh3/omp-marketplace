@@ -20,7 +20,7 @@ import {
 	resolveWordTextObjectRange,
 	resolveDelimitedTextObjectRange,
 } from "../vim/text-objects.js";
-import { lineColToAbs } from "../host/keystroke-bridge.js";
+import { lineColToAbs, absToLineCol } from "../host/keystroke-bridge.js";
 
 import {
 	resetInput,
@@ -91,8 +91,7 @@ import { normalKeymap, operatorKeymap, visualActionKeymap } from "./keymap.js";
 import type { EditIntent } from "./intent.js";
 import { applyIntents } from "../host/adapter.js";
 import type { HostEffects } from "../host/adapter.js";
-import { History } from "../host/history.js";
-import { absToLineCol } from "../host/keystroke-bridge.js";
+import type { History } from "../host/history.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -762,10 +761,7 @@ function dispatchNormalAction(ctx: Ctx, name: string): EditIntent[] {
 		case "Y": return actionBigY(ctx, takeCount(ctx.state));
 		case "p": return actionPaste(ctx, takeCount(ctx.state), true);
 		case "P": return actionPaste(ctx, takeCount(ctx.state), false);
-		case ":": {
-			ctx.state.exBuffer = ":";
-			return [{ kind: "setExBuffer", value: ":" }];
-		}
+		case ":": return [{ kind: "setExBuffer", value: ":" }];
 		// "u" is handled before handleNormalKey in evaluate; this branch is dead.
 		default: return [];
 	}

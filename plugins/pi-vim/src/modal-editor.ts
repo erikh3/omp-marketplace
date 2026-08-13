@@ -70,7 +70,6 @@ export class ModalVimEditor extends CustomEditor implements HostEffects {
 		this.onModeChange?.(mode);
 	}
 
-
 	#repeat(seq: string, times: number): void {
 		for (let i = 0; i < times; i++) this.handleDraftEdit(seq);
 	}
@@ -81,7 +80,6 @@ export class ModalVimEditor extends CustomEditor implements HostEffects {
 		const { line, col } = this.getCursor();
 		return { text: this.getText(), line, col };
 	}
-
 
 	/** Restore the buffer to `snap` (text + cursor) via the base editor's public API. */
 	#restore(snap: Snapshot): void {
@@ -138,9 +136,6 @@ export class ModalVimEditor extends CustomEditor implements HostEffects {
 		this.#repeat(SEQ.deleteForward, n);
 	}
 
-
-	// --- input handling ----------------------------------------------------
-
 	override handleInput(data: string): void {
 		if (this.#state.mode === "insert") {
 			// In INSERT mode, Escape is the one key we own: it drops to NORMAL
@@ -164,7 +159,6 @@ export class ModalVimEditor extends CustomEditor implements HostEffects {
 		// runKey, which owns the undo boundary.
 		runKey(this.#state, this, this.#history, data);
 	}
-
 
 	#isEscape(data: string): boolean {
 		return matchesKey(data, "escape") || data === "\x1b" || matchesKey(data, "ctrl+[");

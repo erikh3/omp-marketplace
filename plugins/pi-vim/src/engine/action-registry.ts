@@ -225,10 +225,9 @@ export function actionPaste(
 	}
 
 	// Charwise paste.
-	const { col: curCol } = postDeleteCursor ?? ctx.host.getCursor();
-	const { line: curLine } = postDeleteCursor ?? ctx.host.getCursor();
-	const curAbs = lineColToAbs(lines, curLine, curCol);
-	const onNonEmptyLine = (lines[curLine] ?? "").length > 0;
+	const cur = postDeleteCursor ?? ctx.host.getCursor();
+	const curAbs = lineColToAbs(lines, cur.line, cur.col);
+	const onNonEmptyLine = (lines[cur.line] ?? "").length > 0;
 	const insertAbs = after && onNonEmptyLine
 		? curAbs + graphemeLenAt(ctx.host.getText(), curAbs)
 		: curAbs;
