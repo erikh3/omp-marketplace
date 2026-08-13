@@ -338,9 +338,9 @@ export class ModalVimEditor extends CustomEditor implements HostEffects {
 		this.#redo(count);
 	}
 
-	/** True when the vim undo/redo timeline holds any committed or undone change. */
-	hasHistory(): boolean {
-		return this.#history.hasHistory();
+	/** True when there is an undone change waiting to be re-applied. */
+	canRedo(): boolean {
+		return this.#history.canRedo();
 	}
 
 	/** Drop the entire vim undo/redo timeline (called when a submit ends the draft). */

@@ -242,13 +242,13 @@ export function evaluate(ctx: Ctx, data: string): EvaluateResult {
 
 	// ── 2. Ctrl+r — redo, or prompt-history passthrough ─────────────────────
 	// Claimed BEFORE app-chord passthrough so a redo never leaks to the host.
-	// With text in the buffer, or a non-empty vim timeline, it redoes. On an
-	// empty buffer with no vim history there is nothing to redo, so it is
-	// forwarded to the host and opens omp's prompt-history search.
+	// If there is an undone edit to re-apply, redo it; otherwise there is
+	// nothing to restore, so forward the key to the host and open omp's
+	// prompt-history search.
 	if (canonical === "ctrl+r") {
 		const count = takeCount(ctx.state); // consume before resetInput clears it
 		resetInput(ctx.state);
-		if (ctx.host.getText() === "" && !ctx.host.hasHistory()) {
+		if (!ctx.host.canRedo()) {
 			return { intents: [{ kind: "forward", data }], undoUnit: false };
 		}
 		ctx.host.redo(count);
@@ -257,9 +257,9 @@ export function evaluate(ctx: Ctx, data: string): EvaluateResult {
 
 	// ── 3. Enter — submit; ends the draft and clears the vim timeline ────────
 	// A submit starts a fresh draft on the host, so the undo/redo timeline must
-	// reset. This is also what lets a later Ctrl+r on the emptied buffer reach
-	// prompt-history search. `undoUnit: false`: opening a history unit here would
-	// re-push the pre-submit text onto the stack, undoing the clear.
+	// reset — otherwise a prior draft's undone edit could leak a redo into the
+	// next prompt. `undoUnit: false`: opening a history unit here would re-push
+	// the pre-submit text onto the stack, undoing the clear.
 	if (canonical === "enter" || data === "\r" || data === "\n") {
 		resetInput(ctx.state);
 		ctx.host.clearHistory();

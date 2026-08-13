@@ -347,11 +347,11 @@ describe("multi-step undo/redo — timeline order", () => {
 });
 
 // ---------------------------------------------------------------------------
-// <C-r> decision: redo vs. prompt-history passthrough (4 cases)
+// <C-r> decision: redo when there's something to restore, else prompt history
 // ---------------------------------------------------------------------------
 
 describe("<C-r> — redo vs. prompt-history passthrough", () => {
-	// Case 1: empty buffer, no vim history → forward to host (prompt history).
+	// Nothing has been undone → nothing to redo → forward to host (prompt history).
 	test("empty buffer with no history forwards <C-r> to host history search", () => {
 		const h = createHarness();
 		let searches = 0;
@@ -363,8 +363,21 @@ describe("<C-r> — redo vs. prompt-history passthrough", () => {
 		expect(h.state()).toBe("|"); // buffer untouched
 	});
 
-	// Case 2: text in the buffer → redo, never passthrough.
-	test("non-empty buffer redoes and does NOT forward to host", () => {
+	// Text in the buffer but nothing was undone → nothing to redo → passthrough.
+	test("non-empty buffer with an empty redo stack forwards to host", () => {
+		const h = createHarness();
+		let searches = 0;
+		h.ed.onHistorySearch = () => { searches++; };
+		h.seed("|hello world");
+		h.send("<Esc>");
+		h.send("dw"); // → "world" (undo stack has an entry; redo stack empty)
+		h.send("<C-r>"); // nothing undone → nothing to redo → passthrough
+		expect(searches).toBe(1);
+		expect(h.state()).toBe("|world"); // buffer untouched by <C-r>
+	});
+
+	// An undone edit exists → redo it, never passthrough.
+	test("an undone edit is redone and does NOT forward to host", () => {
 		const h = createHarness();
 		let searches = 0;
 		h.ed.onHistorySearch = () => { searches++; };
@@ -372,40 +385,57 @@ describe("<C-r> — redo vs. prompt-history passthrough", () => {
 		h.send("<Esc>");
 		h.send("dw"); // → "world"
 		h.send("u"); // → "hello world" (redo stack now has one entry)
-		h.send("<C-r>"); // redo → "world"
+		h.send("<C-r>"); // something to redo → redo → "world"
 		expect(h.state()).toBe("|world");
 		expect(searches).toBe(0);
 	});
 
-	// Case 3: empty buffer but the vim timeline still has history → redo path
-	// (a no-op here since the redo stack is empty), never passthrough.
-	test("empty buffer with history redoes (no-op) and does NOT forward", () => {
+	// Empty buffer with only undo history (empty redo stack) → nothing to redo
+	// → passthrough. This is the case the user asked for: <C-r> falls through to
+	// prompt history the moment there is nothing left to restore.
+	test("empty buffer with only undo history forwards to host", () => {
 		const h = createHarness();
 		let searches = 0;
 		h.ed.onHistorySearch = () => { searches++; };
 		h.seed("|a");
 		h.send("<Esc>");
-		h.send("x"); // delete 'a' → "" (buffer empty, undo stack holds {text:"a"})
+		h.send("x"); // delete 'a' → "" (undo stack holds {text:"a"}, redo empty)
 		expect(h.state()).toBe("|");
-		h.send("<C-r>"); // history present → redo path (empty redo stack → no-op)
-		expect(searches).toBe(0);
+		h.send("<C-r>"); // nothing to redo → passthrough
+		expect(searches).toBe(1);
 		expect(h.state()).toBe("|"); // still empty
 	});
 
-	// Case 4: empty buffer + history; Enter clears the vim timeline, then a
-	// following <C-r> on the emptied buffer reaches prompt-history search.
-	test("Enter clears vim history so the next <C-r> forwards to host", () => {
+	// Redoing until the stack is exhausted, then <C-r> again → passthrough.
+	test("<C-r> past the end of the redo stack forwards to host", () => {
+		const h = createHarness();
+		let searches = 0;
+		h.ed.onHistorySearch = () => { searches++; };
+		h.seed("|abc");
+		h.send("<Esc>");
+		h.send("x"); // → "bc"
+		h.send("u"); // → "abc" (one redo entry)
+		h.send("<C-r>"); // redo → "bc"
+		expect(h.state()).toBe("|bc");
+		expect(searches).toBe(0);
+		h.send("<C-r>"); // redo stack now empty → passthrough
+		expect(searches).toBe(1);
+		expect(h.state()).toBe("|bc"); // unchanged
+	});
+
+	// Enter clears the timeline so a prior draft's undone edit can't leak a redo
+	// into the next prompt.
+	test("Enter clears the timeline; a following <C-r> forwards to host", () => {
 		const h = createHarness({ wireRunExCommand: false });
 		let searches = 0;
 		h.ed.onHistorySearch = () => { searches++; };
-		h.seed("|a");
+		h.seed("|hi");
 		h.send("<Esc>");
-		h.send("x"); // → "" with history present
-		h.send("<C-r>"); // history present → redo path, NOT passthrough
-		expect(searches).toBe(0);
-		h.send("<Enter>"); // submit: clears vim history + forwards (draft reset)
+		h.send("x"); // → "i"
+		h.send("u"); // → "hi" (redo entry present)
+		h.send("<Enter>"); // submit: clears the vim timeline
 		expect(h.fx.submitted.length).toBeGreaterThan(0);
-		h.send("<C-r>"); // empty buffer, history cleared → passthrough
+		h.send("<C-r>"); // redo stack cleared → passthrough
 		expect(searches).toBe(1);
 	});
 

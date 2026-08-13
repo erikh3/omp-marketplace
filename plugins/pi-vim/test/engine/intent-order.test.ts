@@ -55,7 +55,7 @@ function makeCtx(
 		// undo/redo/history are still called directly (timeline ops)
 		undo: (_n: number) => {},
 		redo: (_n: number) => {},
-		hasHistory: () => false,
+		canRedo: () => false,
 		clearHistory: () => {},
 	} satisfies HostEffects;
 

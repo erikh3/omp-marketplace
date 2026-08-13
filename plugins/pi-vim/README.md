@@ -80,19 +80,20 @@ NORMAL mode is swallowed, so it never leaks into the draft.
 ### `Ctrl+r`: redo vs. prompt history
 
 `Ctrl+r` is normally omp's prompt-history search, but vim also binds it to
-redo. pi-vim keeps both by choosing based on the prompt and the vim undo
-timeline:
+redo. pi-vim keeps both with one rule: **if there is an undone edit to
+re-apply, redo it; otherwise there is nothing to restore, so `Ctrl+r` falls
+through to omp's prompt-history search.**
 
-| Prompt | Vim history | `Ctrl+r` does |
-| --- | --- | --- |
-| has text | — | **Redo** the last undone edit(s) |
-| empty | present | **Redo** (a no-op when the redo stack is empty) |
-| empty | none | **Prompt history** — forwarded to omp's `Ctrl+r` search |
+| Redo stack | `Ctrl+r` does |
+| --- | --- |
+| has an undone edit | **Redo** the last undone edit(s) (`{count}` supported) |
+| empty | **Prompt history** — forwarded to omp's `Ctrl+r` search |
 
-So on a fresh empty prompt `Ctrl+r` opens prompt history as usual, and it only
-redoes while you have a draft or an active undo timeline. Submitting with
-`Enter` ends the draft and clears pi-vim's undo timeline, so once the prompt is
-empty again `Ctrl+r` returns to opening prompt history.
+This holds regardless of the buffer contents: on a fresh prompt (nothing
+undone) `Ctrl+r` opens prompt history as usual, and after you redo everything
+back it opens prompt history again. Submitting with `Enter` ends the draft and
+clears pi-vim's undo timeline, so a prior draft's undone edit never leaks a
+redo into the next prompt.
 
 ## VISUAL-mode keys
 
@@ -165,9 +166,10 @@ delete *call* (so a multi-key edit would undo one grapheme at a time). Instead
 the editor snapshots the whole buffer before each change and restores via
 `setText`. Granularity follows vim: a NORMAL command is one step (including
 multi-line `dd` / `dj` / `dG`), INSERT typing undoes character by character,
-and a paste undoes as a single unit. Submitting with `Enter` clears this
-timeline (the draft is gone), which is what lets `Ctrl+r` fall back to omp's
-prompt-history search on the next empty prompt.
+and a paste undoes as a single unit. `Ctrl+r` redoes while the redo stack has
+an undone edit and otherwise forwards to omp's prompt-history search; a submit
+(`Enter`) clears this timeline so a prior draft's undone edit never leaks a
+redo into the next prompt.
 
 The vendored files under `src/vim/` are copied verbatim (MIT) and are not
 edited in place; refresh them by re-vendoring from upstream.

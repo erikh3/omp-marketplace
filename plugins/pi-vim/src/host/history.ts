@@ -59,12 +59,12 @@ export class History {
 	}
 
 	/**
-	 * True when the timeline holds anything that a redo/undo could act on —
-	 * either committed undo steps or previously-undone redo steps.  An open
-	 * pending snapshot does not count: it only becomes history once committed.
+	 * True when there is an undone edit waiting to be re-applied (the redo stack
+	 * is non-empty).  Drives the `Ctrl+r` decision: with nothing to redo the key
+	 * is forwarded to the host so omp's prompt-history search opens instead.
 	 */
-	hasHistory(): boolean {
-		return this.#undo.length > 0 || this.#redo.length > 0;
+	canRedo(): boolean {
+		return this.#redo.length > 0;
 	}
 
 	/**

@@ -81,14 +81,14 @@ export interface HostEffects extends BufferView {
 	/** Redo the last undone change(s). Cancels any open pending change. */
 	redo(count: number): void;
 	/**
-	 * True when the vim undo/redo timeline holds any committed or undone change.
-	 * Drives the `Ctrl+r` decision: with no history and an empty buffer, the key
-	 * is forwarded to the host so omp's prompt-history search opens instead.
+	 * True when there is an undone change waiting to be re-applied. Drives the
+	 * `Ctrl+r` decision: with nothing to redo, the key is forwarded to the host
+	 * so omp's prompt-history search opens instead.
 	 */
-	hasHistory(): boolean;
+	canRedo(): boolean;
 	/**
 	 * Drop the entire vim undo/redo timeline. Called when a submit ends the
-	 * current draft so the next draft's `Ctrl+r` reaches prompt-history search.
+	 * current draft.
 	 */
 	clearHistory(): void;
 }
