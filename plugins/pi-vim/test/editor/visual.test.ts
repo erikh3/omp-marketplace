@@ -500,35 +500,31 @@ describe("visual delete undo — restores as one unit", () => {
 // ─── 10. Visual paste (p/P) — replace selection with register ───────────────
 
 describe("v p — replace charwise selection with register", () => {
-	test("yank word then visually select and p replaces", () => {
+	test("charwise visual-p pastes at selection start — oracle: abcdef 0yl 0vllp → adef", () => {
 		const h = createHarness();
-		h.seed("|hello world");
-		// First yank "hello" (yank inner word from position 0)
-		h.send("<Esc>0yw");           // yank "hello " (word)
-		// Now move to "world" and visually select it
-		h.send("$bvep");             // select "world", paste "hello " over it
+		h.seed("|abcdef");
+		h.send("<Esc>0yl");   // yank 'a'
+		h.send("0vllp");      // select 'abc', paste 'a' at selection start → adef
 		expect(h.ed.mode).toBe("normal");
-		// "world" replaced with "hello " (trailing space from yw)
-		const t = h.ed.getText();
-		// The exact result: "hello " was yanked (yw includes trailing space)
-		// Charwise select "world" and paste
-		expect(t).toContain("hello");
+		expect(h.ed.getText()).toBe("adef");
 	});
 
-	test("seed register with yy, visually select char span, p replaces with line", () => {
+	test("charwise visual-p with non-zero anchor — oracle: xxYYzz 0yl 0llvlp → xxxzz", () => {
 		const h = createHarness();
-		h.seed("|foo\nbar\nbaz");
-		// Yank "foo" line
-		h.send("<Esc>ggyy");
-		// Select "ba" in "bar" and replace with yanked line
-		h.send("jvlp");
+		h.seed("|xxYYzz");
+		h.send("<Esc>0yl");   // yank 'x'
+		h.send("0llvlp");     // cursor→col2, select 'YY', paste 'x' → xxxzz
 		expect(h.ed.mode).toBe("normal");
-		// linewise register replaces charwise selection (paste goes to cursor position)
-		// The selection is deleted, then "foo\n" is pasted (linewise, P semantics)
-		const t = h.ed.getText();
-		// "bar" had "ba" deleted → "r\nbaz", then "foo" inserted as new line
-		// Actually linewise paste inserts on a new line at/above cursor
-		expect(typeof t).toBe("string"); // smoke: just verify no crash
+		expect(h.ed.getText()).toBe("xxxzz");
+	});
+
+	test("linewise visual-p pastes at deleted-selection start line — oracle: ggyy jVjp → LINE0\\nLINE0\\nLINE3", () => {
+		const h = createHarness();
+		h.seed("|LINE0\nAAA\nBBB\nLINE3");
+		h.send("<Esc>ggyy");  // yank 'LINE0' linewise
+		h.send("jVjp");       // select lines AAA+BBB, paste LINE0 → replaces both lines
+		expect(h.ed.mode).toBe("normal");
+		expect(h.ed.getText()).toBe("LINE0\nLINE0\nLINE3");
 	});
 });
 
@@ -536,13 +532,13 @@ describe("v p vs v P — both replace selection", () => {
 	// Both p and P in visual mode replace the selection (they differ only after deletion
 	// for charwise: P inserts at cursor, p inserts after cursor, but the selection is
 	// already deleted to the cursor position, so both behave identically for charwise).
-	test("v P also replaces selection", () => {
+	test("v P also replaces selection at selection start — oracle: abcdef 0yl 0vllP → adef", () => {
 		const h = createHarness();
-		h.seed("|abcde");
-		h.send("<Esc>0yw");           // yank "abcde" (or word portion)
-		h.send("0vllP");             // select "abc", replace
+		h.seed("|abcdef");
+		h.send("<Esc>0yl");   // yank 'a'
+		h.send("0vllP");      // select 'abc', P-paste 'a' at selection start → adef
 		expect(h.ed.mode).toBe("normal");
-		// P also replaces — no crash, mode normal
+		expect(h.ed.getText()).toBe("adef");
 	});
 });
 

@@ -614,13 +614,12 @@ function handleVisualKey(ctx: Ctx, data: string): EditIntent[] | null {
 		case "visual-p": {
 			// Visual paste: stash register, delete selection, restore, paste.
 			const saved = ctx.state.registers.get();
-			const deleteIntents = applyVisualOperator(ctx, "d", linewise);
 
-			// Restore the original register (overwrite the one set by the delete).
-			if (saved !== null) ctx.state.registers.set(saved);
-			else ctx.state.registers.clear();
-
-			// Compute post-delete cursor position analytically (buffer not yet modified).
+			// Snapshot selection range while visualAnchor is still intact —
+			// applyVisualOperator nulls ctx.state.visualAnchor, causing getAnchor()
+			// to fall back to getCursor() (selection end) instead of the real anchor.
+			// Compute postDeleteCursor here, BEFORE the delete, so the paste lands
+			// at the true deletion-start position.
 			let postDeleteCursor: { line: number; col: number } | undefined;
 			if (!linewise) {
 				const { startAbs } = charwiseRange(ctx);
@@ -639,6 +638,13 @@ function handleVisualKey(ctx: Ctx, data: string): EditIntent[] | null {
 					postDeleteCursor = { line: 0, col: 0 };
 				}
 			}
+
+			const deleteIntents = applyVisualOperator(ctx, "d", linewise);
+
+			// Restore the original register (overwrite the one set by the delete).
+			if (saved !== null) ctx.state.registers.set(saved);
+			else ctx.state.registers.clear();
+
 			const pasteIntents = actionPaste(ctx, 1, false, postDeleteCursor);
 			return [...deleteIntents, ...pasteIntents];
 		}
