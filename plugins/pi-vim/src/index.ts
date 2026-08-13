@@ -69,13 +69,14 @@ export default function piVim(pi: ExtensionAPI): void {
 				const editor = new ModalVimEditor(tui, theme, keybindings);
 				editor.onModeChange = applyMode;
 				editor.onExCommandChange = applyEx;
-				// Dispatch an ex command line (`/name args`, `!cmd`, `/quit`) through
-				// the host's user-prompt pipeline — the same seam a manually typed
-				// submission uses, so `:` commands resolve exactly like typing them
-				// (idle starts a turn; a streaming turn queues it as a steer). Without
-				// this the editor silently falls back to setText+onSubmit, which the
-				// interactive host does not wire, so `:` commands never dispatched.
-				editor.runExCommand = (commandLine) => pi.sendUserMessage(commandLine);
+				// Leave `runExCommand` unset so the editor's ex dispatch falls through
+				// to `setText(commandLine)` + `this.onSubmit(commandLine)` — the exact
+				// path a manually typed `/tree`<Enter> or `!ls`<Enter> takes. The host
+				// wires `onSubmit` onto this editor (InputController.setupEditorSubmitHandler),
+				// and that handler is what interprets slash commands and `!` shell.
+				// (An earlier build routed this through `pi.sendUserMessage`, which sends
+				// the text to the LLM as a prompt instead of executing it — so `:tree`
+				// reached the model as literal "/tree" and `!ls` as literal text.)
 				editor.notifyUser = (message) => ctx.ui.notify(message, "warning");
 				editor.getCommandNames = () => new Set([
 					...BUILTIN_SLASH_COMMAND_RESERVED_NAMES,

@@ -90,7 +90,7 @@ function makeMocks() {
 			error: () => {},
 		},
 		getCommands() {
-			return [];
+			return [{ name: "tree" }];
 		},
 		sendUserMessage(content: string) {
 			userMessages.push(content);
@@ -183,7 +183,7 @@ describe("piVim extension wiring", () => {
 			expect(editor).toBeInstanceOf(ModalVimEditor);
 		});
 
-		test("all five callbacks are wired on the returned editor", async () => {
+		test("the four host callbacks are wired on the returned editor", async () => {
 			const { pi, fireStart } = makeMocks();
 			piVim(pi);
 			const editor = (await fireStart(true))!;
@@ -191,15 +191,31 @@ describe("piVim extension wiring", () => {
 			expect(typeof editor.onExCommandChange).toBe("function");
 			expect(typeof editor.notifyUser).toBe("function");
 			expect(typeof editor.getCommandNames).toBe("function");
-			expect(typeof editor.runExCommand).toBe("function");
+			// `runExCommand` is deliberately LEFT UNSET so the editor's ex dispatch
+			// falls through to `setText` + `onSubmit` — the host's real submit
+			// pipeline, which interprets slash commands and `!` shell. Wiring it to
+			// `pi.sendUserMessage` (an earlier build) sent `:tree`/`!ls` to the LLM
+			// as literal text instead of executing them.
+			expect(editor.runExCommand).toBeUndefined();
 		});
 
-		test("runExCommand('/quit') calls pi.sendUserMessage('/quit')", async () => {
+		test("ex dispatch routes through the editor's onSubmit, not sendUserMessage", async () => {
 			const { pi, userMessages, fireStart } = makeMocks();
 			piVim(pi);
 			const editor = (await fireStart(true))!;
-			editor.runExCommand!("/quit");
-			expect(userMessages).toContain("/quit");
+			// Simulate the host wiring onSubmit onto the editor (as
+			// InputController.setupEditorSubmitHandler does).
+			const submitted: string[] = [];
+			editor.onSubmit = (text: string) => { submitted.push(text); };
+			// Type `:tree`<Enter> in NORMAL mode.
+			editor.handleInput("\x1b"); // -> NORMAL
+			for (const ch of ":tree") editor.handleInput(ch);
+			editor.handleInput("\r"); // submit ex line
+			// The command line reached the submit pipeline as a slash command…
+			expect(submitted).toContain("/tree");
+			// …and was NOT sent to the LLM as a user prompt.
+			expect(userMessages).not.toContain("/tree");
+			expect(userMessages).not.toContain(":tree");
 		});
 
 		test("notifyUser routes to ctx.ui.notify with 'warning' level", async () => {
