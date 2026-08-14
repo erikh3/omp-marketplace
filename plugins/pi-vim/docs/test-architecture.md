@@ -1,7 +1,7 @@
 # pi-vim test architecture
 
 Design for a comprehensive, extensible test suite for the `pi-vim` plugin.
-**Status: implemented.** The suite is built and green — 698 tests across 16
+**Status: implemented.** The suite is built and green — 826 tests across 23
 files (`bun test`, ~1.2 s), with `bun run typecheck` clean. This document is the
 architecture reference; the `smoke.ts` cutover (§12) is complete.
 
@@ -52,7 +52,9 @@ clipboard, `.` repeat). The suite must therefore:
 | Pure motion logic | `src/vim/motions.ts` | exported pure fns | direct call, table-driven |
 | Text objects | `src/vim/text-objects.ts` | exported pure fns | direct call, table-driven |
 | Visual geometry | `src/vim/visual.ts` | exported pure fns | direct call, table-driven |
-| Offset/keystep bridge | `src/vim/bridge.ts` | `lineColToAbs`/`absToLineCol`/`graphemeSteps` | direct call + round-trip properties |
+| Offset/keystep bridge | `src/host/keystroke-bridge.ts` | `lineColToAbs`/`absToLineCol`/`graphemeSteps` | direct call + round-trip properties |
+| Config loader | `src/host/config.ts` | `loadPiVimConfig` merge/validate | direct call, table-driven |
+| Mode-change hooks | `src/host/mode-effects.ts` | shell-hook dispatch | direct call, spy on shell |
 | Modal editor | `src/modal-editor.ts` | `handleInput`, `mode`, callbacks | **integration** via keystroke DSL |
 | Mode widget | `src/mode-widget.ts` | `render(width)` | string/snapshot assertions |
 | Extension wiring | `src/index.ts` | `piVim(pi)` + event handlers | mock `ExtensionAPI`/`ctx` |
@@ -92,15 +94,15 @@ plugins/pi-vim/
   test/
     support/
       harness.ts                # editor factory + captured host effects
+      harness.test.ts           # harness self-test
       keys.ts                   # keystroke-notation → raw byte sequences
       state.ts                  # cursor-marker string  <->  {text,line,col}
       fixtures.ts               # shared unicode / multiline sample buffers
-    vim/
-      motions.test.ts           # pure fns
+    vim/                        # Layer 1 — pure vendored fns
+      motions.test.ts
       text-objects.test.ts
       visual.test.ts
-      bridge.test.ts
-    editor/
+    editor/                     # Layer 2 — modal-editor integration (the bulk)
       modes.test.ts             # mode transitions (INSERT/NORMAL/VISUAL/EX)
       motions.test.ts           # h/l/j/k, w/b/e, 0/^/$, {/} , f/t/;/, , %, gg/G, counts
       operators.test.ts         # d/c/y + motions, dd/cc/yy, D/C, x/s/r
@@ -110,9 +112,19 @@ plugins/pi-vim/
       undo.test.ts              # u / Ctrl+r granularity + timeline
       ex.test.ts                # : command line, quit, dispatch, reserved, notify
       unicode.test.ts           # grapheme/emoji/CJK correctness across motions+edits
-    widget/
+    engine/                     # engine units over a fake host
+      dispatch.test.ts          # evaluator/runKey per key sequence
+      intent-order.test.ts      # emitted EditIntent[] order for load-bearing forms
+      normal-keys.test.ts       # X/S/_/gM/J/gJ + dot-repeat NORMAL keys
+      register-mirror.test.ts   # unnamed register ↔ OS-clipboard mirror policy
+    host/                       # host adapters
+      keystroke-bridge.test.ts  # (line,col) offset round-trips + replay counts
+      config.test.ts            # pi-vim.json load / merge / validation
+      mode-effects.test.ts      # modeChange shell-hook dispatch
+    widget/                     # Layer 3 — widget render
       mode-widget.test.ts       # render() per mode + ex, right-alignment
-    extension/
+      mode-colors.test.ts       # per-mode color tokens
+    extension/                  # Layer 4 — extension wiring
       index.test.ts             # piVim wiring, session_start/shutdown, cursor shapes
   tsconfig.json                 # include test/**/*.ts (see §11)
   package.json                  # scripts: test, test:cov, typecheck (see §11)

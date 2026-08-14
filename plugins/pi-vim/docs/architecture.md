@@ -2,9 +2,9 @@
 
 Design for a ground-up internal re-architecture of the `pi-vim` plugin.
 
-**Status: implemented.** The refactor is complete; the as-built module layout matches §8 (`src/engine/`, `src/host/`, `src/ex/`, vendored `src/vim/`).
+**Status: implemented.** The refactor is complete; the as-built module layout matches §8 (`src/engine/`, `src/host/`, `src/ex/`, vendored `src/vim/`). Three modules added *after* this refactor — `src/host/config.ts`, `src/host/clipboard.ts`, `src/host/mode-effects.ts` — are listed in §8 and documented in the README; they are features layered on top of the seams this doc designs, not part of the behavior-preserving refactor itself.
 
-**Hard contract: behavior-preserving.** The 698-test suite under
+**Hard contract: behavior-preserving.** The 826-test suite under
 `plugins/pi-vim/test/` (see `docs/test-architecture.md`) is the regression
 oracle. This redesign changes *internal structure only* — no observable
 keystroke behavior changes. Every migration step keeps `bun test` and
@@ -542,10 +542,11 @@ Each unit states **what it does / its interface / what it depends on.**
 - **Depends on:** engine + host modules; base `CustomEditor`.
 
 ### 5.17 Extension shell — `src/index.ts` + `src/mode-widget.ts`
-- **Unchanged responsibility:** register the editor, mount `ModeWidget`, map
+- **Wire-time responsibility (extended post-refactor):** register the editor, mount `ModeWidget`, map
   `VimMode`→DECSCUSR cursor shapes, forward `onModeChange`/`onExCommandChange`.
-  The `runExCommand → sendUserMessage` wiring stays. No structural change beyond
-  importing the new editor.
+  index.ts now also loads `pi-vim.json` (`loadPiVimConfig`), builds the OS-clipboard
+  port and the `modeChange` shell-hook handler, and dispatches ex commands through
+  the editor's `onSubmit`. `mode-widget.ts` is unchanged.
 
 ---
 
@@ -624,6 +625,9 @@ src/
     adapter.ts                 # BufferView + HostEffects + applyIntents (the one effect site)
     keystroke-bridge.ts        # (line,col) -> keystroke replay (bridge.ts converters + extracted #moveToAbs)
     history.ts                 # dumb undo/redo snapshot stack (text + cursor)
+    config.ts                  # pi-vim.json load/merge/validate        (added post-refactor)
+    clipboard.ts               # OS-clipboard read/write port            (added post-refactor)
+    mode-effects.ts            # modeChange shell-hook dispatch          (added post-refactor)
   ex/
     parser.ts                  # ex command-line parser
     commands.ts                # ex command registry + dispatch
