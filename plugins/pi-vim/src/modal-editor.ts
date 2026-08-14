@@ -6,9 +6,17 @@ export type { VimMode } from "./host/adapter.js";
 import { History, type Snapshot } from "./host/history.js";
 import { parseExLine } from "./ex/parser.js";
 import { dispatchEx, type ExHost } from "./ex/commands.js";
-import { type VimState, makeVimState, resetInput } from "./engine/state.js";
+import { type VimState, makeVimState, resetInput, type Ctx } from "./engine/state.js";
 import { RegisterFile } from "./engine/registers.js";
 import { runKey, finalizeInsertRepeat } from "./engine/dispatch.js";
+import {
+	type LineSpan,
+	type ScanCursor,
+	computeSelectionSpans,
+	makeScanCursor,
+	advanceScan,
+	getSelectionColors,
+} from "./engine/visual-decoration.js";
 
 /**
  * Raw terminal byte sequences replayed into the base editor. NORMAL-mode
@@ -81,6 +89,102 @@ export class ModalVimEditor extends CustomEditor implements HostEffects {
 	 * pi-vim owns its own undo/redo timeline instead of the base editor's.
 	 */
 	#history = new History();
+
+	// ── Visual-mode selection decoration ─────────────────────────────────────
+
+	/**
+	 * Per-render line-indexed selection spans. `null` when not in visual mode.
+	 * Set by the {@link render} override before delegating to the parent and
+	 * consulted by the `decorateText` hook for each layout-line segment.
+	 */
+	#selectionSpans: Map<number, LineSpan> | null = null;
+	/**
+	 * Scan cursor tracking which logical-line segment `decorateText` is
+	 * currently processing. Reset in {@link render} at the top of each pass.
+	 */
+	#scanCursor: ScanCursor = makeScanCursor();
+
+	/**
+	 * Build a ModalVimEditor, wiring the visual-selection decorator on top of
+	 * the parent's magic-keyword decorator.
+	 *
+	 * Both the `(theme)` (omp-native) and `(tui, theme, keybindings)` (pi
+	 * extension API) constructor forms are forwarded to {@link CustomEditor}
+	 * unchanged — this constructor is purely additive.
+	 */
+	constructor(...args: readonly unknown[]) {
+		super(...args);
+
+		// CustomEditor sets `this.decorateText` as an instance-property arrow
+		// function.  We capture it here (after super() so it exists) and wrap it
+		// with the visual-selection layer.
+		const parentDecorate = this.decorateText as ((text: string) => string) | undefined;
+
+		this.decorateText = (text: string): string => {
+			const spans = this.#selectionSpans;
+
+			// No active selection — no position tracking needed; delegate straight.
+			if (!spans || text.length === 0) {
+				return parentDecorate ? parentDecorate(text) : text;
+			}
+
+			// Advance the scan cursor to find this segment's position in the buffer.
+			const lines = this.getLines();
+			const { lineIndex, startCol } = advanceScan(this.#scanCursor, text, lines);
+			const span = spans.get(lineIndex);
+
+			if (!span) {
+				// This logical line has no selected range.
+				return parentDecorate ? parentDecorate(text) : text;
+			}
+
+			const textEnd = startCol + text.length;
+			const overlapStart = Math.max(span.startCol, startCol);
+			const overlapEnd = Math.min(span.endCol, textEnd);
+
+			if (overlapStart >= overlapEnd) {
+				// Segment is outside the selection on this line.
+				return parentDecorate ? parentDecorate(text) : text;
+			}
+
+			// Split text into before / selected / after relative to the segment.
+			const relStart = overlapStart - startCol;
+			const relEnd = overlapEnd - startCol;
+
+			const before = text.slice(0, relStart);
+			const selected = text.slice(relStart, relEnd);
+			const after = text.slice(relEnd);
+
+			// Non-selected flanks keep the parent's magic-keyword decoration;
+			// the selected region receives the plain background highlight so it
+			// remains visually dominant and unambiguous.
+			const { bg, reset } = getSelectionColors();
+			return (
+				(before.length > 0 ? (parentDecorate ? parentDecorate(before) : before) : "") +
+				bg +
+				selected +
+				reset +
+				(after.length > 0 ? (parentDecorate ? parentDecorate(after) : after) : "")
+			);
+		};
+	}
+
+	/**
+	 * Compute the visual selection span map and reset the scan cursor, then
+	 * delegate to the parent renderer.  The `decorateText` hook consults both
+	 * during the parent's layout/render pass.
+	 */
+	override render(width: number): readonly string[] {
+		const mode = this.#state.mode;
+		if (mode === "visual" || mode === "visual-line") {
+			const ctx: Ctx = { state: this.#state, host: this };
+			this.#selectionSpans = computeSelectionSpans(ctx);
+		} else {
+			this.#selectionSpans = null;
+		}
+		this.#scanCursor = makeScanCursor();
+		return super.render(width);
+	}
 
 	get mode(): VimMode {
 		return this.#state.mode;
