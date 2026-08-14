@@ -23,6 +23,13 @@
       "source": "./pi-vim",
       "category": "productivity",
       "homepage": "https://github.com/erikh3/omp-marketplace/tree/main/plugins/pi-vim"
+    },
+    {
+      "name": "session-autoname",
+      "description": "Auto-name the session from its logs via the smol model when /name or /rename is issued without a title.",
+      "source": "./session-autoname",
+      "category": "productivity",
+      "homepage": "https://github.com/erikh3/omp-marketplace/tree/main/plugins/session-autoname"
     }
   ]
 }

@@ -33,6 +33,7 @@ A local source is any path starting with `./`, `~/`, or `/` that contains
 | Plugin | Description |
 | --- | --- |
 | [`claude-plugin-bin-path`](plugins/claude-plugin-bin-path) | Puts each enabled Claude Code plugin's `bin/` directory on the Bash tool PATH, so bundled executables run by bare name under omp. |
+| [`session-autoname`](plugins/session-autoname) | Auto-name the session from its logs via the smol model when `/name` or `/rename` is issued without a title. |
 
 ## Install a plugin
 
