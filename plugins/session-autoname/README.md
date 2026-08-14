@@ -37,12 +37,15 @@ Three mechanisms, each dictated by an omp constraint:
   slash-command dispatch; returning `{ handled: true }` preempts the built-in's
   usage error. Only a bare `/rename` (optionally surrounded by whitespace) is
   intercepted. `/rename <title>` and everything else fall straight through.
-- **Name generation reuses omp's own titling engine.** The transcript is read
-  from `sessionManager.getEntries()`, condensed with `buildReplanTitleContext`
-  (the same recent-turns digest omp feeds its post-replan title refresh), and
-  passed to `generateSessionTitle`. That honors the `providers.tinyModel`
-  setting: a local tiny worker or the online `@smol` role. No online fallback is
-  forced.
+- **Name generation reflects the whole transcript.** The full conversation is
+  read from `sessionManager.getEntries()` and rendered as `User:`/`Assistant:`
+  turns. When that transcript is long enough to otherwise be truncated by the
+  title model, it is first condensed by the current session model (via
+  `completeSimple`) into a few sentences — a summarize-then-title pass so the
+  name captures the entire session, not just its last few turns. The summary
+  (or the raw transcript for short sessions) is passed to `generateSessionTitle`,
+  which honors the `providers.tinyModel` setting: a local tiny worker or the
+  online `@smol` role. No online fallback is forced.
 
 The generated (or supplied) name is stored via `pi.setSessionName`, which
 records source `user`, so a later automatic title will not overwrite it.
@@ -88,6 +91,8 @@ bun run typecheck   # tsc --noEmit
 bun test            # routing + auto-naming coverage
 ```
 
-The test suite mocks `generateSessionTitle` via `mock.module`, so the
-auto-naming paths (success, decline, throw, empty transcript) are exercised
-without a real model call.
+The test suite mocks both `generateSessionTitle` and the summary model
+(`completeSimple` from `@oh-my-pi/pi-ai`) via `mock.module`, so the auto-naming
+paths — success, decline, throw, empty transcript, whole-transcript coverage,
+and the summarize-then-title pass with its no-model / summary-error fallbacks —
+are exercised without a real model call.
