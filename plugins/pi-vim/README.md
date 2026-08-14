@@ -249,8 +249,9 @@ an undone edit and otherwise forwards to omp's prompt-history search; a submit
 (`Enter`) clears this timeline so a prior draft's undone edit never leaks a
 redo into the next prompt.
 
-The vendored files under `src/vim/` are copied verbatim (MIT) and are not
-edited in place; refresh them by re-vendoring from upstream.
+The vendored files under `src/vim/` are copied verbatim from `lajarre/pi-vim`
+under the MIT License (see `src/vim/LICENSE`) and are not edited in place;
+refresh them by re-vendoring from upstream.
 
 ## Develop
 
