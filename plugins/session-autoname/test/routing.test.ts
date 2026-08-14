@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import type { ExtensionAPI, ExtensionContext, InputEventResult, SessionEntry } from "@oh-my-pi/pi-coding-agent";
 import * as realTitleGenerator from "@oh-my-pi/pi-coding-agent/utils/title-generator";
+import * as realPiAi from "@oh-my-pi/pi-ai";
 
 // Controllable stub for the smol title model. Swapped per test via `titleImpl`.
 // Mocked before importing the extension so the module binds to this stub.
@@ -13,6 +14,30 @@ const realExports = { ...realTitleGenerator };
 mock.module("@oh-my-pi/pi-coding-agent/utils/title-generator", () => ({
 	...realExports,
 	generateSessionTitle,
+}));
+// Controllable stub for the summary model (completeSimple from pi-ai). The
+// extension summarizes long transcripts before titling; this captures the
+// transcript it is handed and returns a scripted assistant message. Only
+// completeSimple is overridden so the rest of the pi-ai graph stays intact.
+let lastSummaryInput: string | undefined;
+let completeImpl: (transcript: string) => Promise<{
+	stopReason: string;
+	content: { type: string; text: string }[];
+}> = async () => ({ stopReason: "stop", content: [{ type: "text", text: "" }] });
+const completeSimple = mock(
+	(
+		_model: unknown,
+		context: { systemPrompt?: unknown[]; messages: { content: string }[] },
+		_options?: { maxTokens?: number; disableReasoning?: boolean; temperature?: number },
+	) => {
+		lastSummaryInput = context.messages[0]?.content ?? "";
+		return completeImpl(lastSummaryInput);
+	},
+);
+const realAiExports = { ...realPiAi };
+mock.module("@oh-my-pi/pi-ai", () => ({
+	...realAiExports,
+	completeSimple,
 }));
 // Dynamic import: the extension must bind to the mocked title-generator above,
 // so `mock.module` has to run before the module is loaded (static imports hoist).
@@ -39,6 +64,18 @@ function messageEntry(role: "user" | "assistant", text: string): SessionEntry {
 	} as unknown as SessionEntry;
 }
 
+/** A message entry with an arbitrary role and raw content blocks, for
+ *  exercising the role and content-block filters (tool calls, thinking,
+ *  images, system/developer messages must be excluded). */
+function richEntry(role: string, content: unknown): SessionEntry {
+	return {
+		type: "message",
+		id: `e-${++entrySeq}`,
+		parentId: null,
+		message: { role, content, timestamp: Date.now() },
+	} as unknown as SessionEntry;
+}
+
 /** A non-message entry (e.g. a model switch) that must be ignored. */
 function noiseEntry(): SessionEntry {
 	// Test fixture: shape the extension's filter must skip. Boundary cast.
@@ -58,7 +95,7 @@ interface StatusCall {
  * Build a captured harness around the extension. `entries` is the fake
  * transcript. Routing-only tests pass `[]` so the title model is never reached.
  */
-function makeHarness(entries: SessionEntry[]) {
+function makeHarness(entries: SessionEntry[], options: { model?: unknown } = {}) {
 	const names: string[] = [];
 	const notices: Notice[] = [];
 	const statuses: StatusCall[] = [];
@@ -90,9 +127,16 @@ function makeHarness(entries: SessionEntry[]) {
 	} as unknown as ExtensionAPI;
 
 	const ctx = {
-		modelRegistry: {},
-		model: undefined,
-		sessionManager: { getEntries: (): SessionEntry[] => entries },
+		modelRegistry: {
+			// Only reached on the summary path (a model must be active); returns a
+			// static key stand-in for the ApiKeyResolver completeSimple expects.
+			resolver: (): string => "test-api-key",
+		},
+		model: options.model,
+		sessionManager: {
+			getEntries: (): SessionEntry[] => entries,
+			getSessionId: (): string => "session-test",
+		},
 		ui: {
 			notify: (message: string, type?: string): void => {
 				notices.push({ message, type });
@@ -125,7 +169,10 @@ function makeHarness(entries: SessionEntry[]) {
 
 beforeEach(() => {
 	generateSessionTitle.mockClear();
+	completeSimple.mockClear();
 	titleImpl = async () => null;
+	completeImpl = async () => ({ stopReason: "stop", content: [{ type: "text", text: "" }] });
+	lastSummaryInput = undefined;
 	entrySeq = 0;
 });
 
@@ -287,5 +334,126 @@ describe("signal-less transcripts short-circuit the model", () => {
 		await h.runName("");
 		expect(generateSessionTitle).not.toHaveBeenCalled();
 		expect(h.notices.some(n => n.type === "warning")).toBe(true);
+	});
+});
+
+describe("whole-transcript coverage", () => {
+	// More than the recent-turns window omp's title digest used to cap at, so an
+	// early turn only survives if the WHOLE transcript is considered.
+	const manyTurns = (): SessionEntry[] => {
+		const entries: SessionEntry[] = [messageEntry("user", "calibrate the flux capacitor at dawn")];
+		for (let i = 0; i < 12; i++) {
+			entries.push(messageEntry("assistant", `step ${i} done`));
+			entries.push(messageEntry("user", `next ${i}`));
+		}
+		return entries;
+	};
+
+	test("digest includes turns older than the recent window", async () => {
+		titleImpl = async () => "Flux work";
+		const h = makeHarness(manyTurns());
+		await h.runName("");
+		const firstArg = generateSessionTitle.mock.calls[0]?.[0] ?? "";
+		expect(firstArg).toContain("calibrate the flux capacitor at dawn");
+		expect(firstArg).toContain("next 11");
+	});
+
+	test("short transcript is titled directly, without a summary pass", async () => {
+		titleImpl = async () => "Flux work";
+		const h = makeHarness(manyTurns(), { model: { provider: "test", id: "big" } });
+		await h.runName("");
+		expect(completeSimple).not.toHaveBeenCalled();
+	});
+
+	test("keeps only user/assistant text; drops tool calls, thinking, and system messages", async () => {
+		titleImpl = async () => "Filtered";
+		const h = makeHarness([
+			richEntry("system", [{ type: "text", text: "SYSTEM_PROMPT_MARKER" }]),
+			richEntry("user", [
+				{ type: "text", text: "user goal alpha" },
+				{ type: "image", image: "…" },
+			]),
+			richEntry("assistant", [
+				{ type: "thinking", thinking: "THINKING_MARKER" },
+				{ type: "toolCall", id: "t1", name: "bash", arguments: {} },
+				{ type: "text", text: "assistant reply beta" },
+			]),
+			richEntry("toolResult", [{ type: "text", text: "TOOL_RESULT_MARKER" }]),
+		]);
+		await h.runName("");
+		const firstArg = generateSessionTitle.mock.calls[0]?.[0] ?? "";
+		expect(firstArg).toContain("user goal alpha");
+		expect(firstArg).toContain("assistant reply beta");
+		expect(firstArg).not.toContain("SYSTEM_PROMPT_MARKER");
+		expect(firstArg).not.toContain("THINKING_MARKER");
+		expect(firstArg).not.toContain("TOOL_RESULT_MARKER");
+	});
+});
+
+describe("summary pass for long transcripts", () => {
+	// Long enough (~6 KB) to exceed the title model's own input bound, so the
+	// extension condenses it before titling.
+	const longTranscript = (): SessionEntry[] => {
+		const entries: SessionEntry[] = [
+			messageEntry("user", "kick off: migrate the billing pipeline to the new schema end to end"),
+		];
+		for (let i = 0; i < 40; i++) {
+			entries.push(messageEntry("assistant", `iteration ${i}: adjusted a mapping and reran the importer to validate rows`));
+			entries.push(messageEntry("user", `iteration ${i}: looks off, tweak the retry backoff and try once more please`));
+		}
+		return entries;
+	};
+
+	test("summarizes the whole transcript, then titles the summary", async () => {
+		completeImpl = async () => ({
+			stopReason: "stop",
+			content: [{ type: "text", text: "Migrate the billing pipeline to the new schema." }],
+		});
+		titleImpl = async firstMessage =>
+			firstMessage.includes("billing pipeline") ? "Billing pipeline migration" : "wrong";
+		const h = makeHarness(longTranscript(), { model: { provider: "test", id: "big" } });
+		await h.runName("");
+		expect(completeSimple).toHaveBeenCalledTimes(1);
+		// The summary model saw the opening goal, not just the latest turns.
+		expect(lastSummaryInput ?? "").toContain("migrate the billing pipeline");
+		// The title model was fed the summary, not the raw transcript.
+		expect(generateSessionTitle.mock.calls[0]?.[0]).toBe("Migrate the billing pipeline to the new schema.");
+		expect(h.names).toEqual(["Billing pipeline migration"]);
+		// The summary request is well-formed: a single system prompt and the
+		// bounded, greedy utility-call options.
+		const [, context, options] = completeSimple.mock.calls[0] ?? [];
+		expect(context?.systemPrompt).toHaveLength(1);
+		expect(typeof context?.systemPrompt?.[0]).toBe("string");
+		expect(options?.maxTokens).toBe(256);
+		expect(options?.disableReasoning).toBe(true);
+		expect(options?.temperature).toBe(0);
+	});
+
+	test("no active model: skips the summary and titles the transcript", async () => {
+		titleImpl = async () => "Fallback title";
+		const h = makeHarness(longTranscript());
+		await h.runName("");
+		expect(completeSimple).not.toHaveBeenCalled();
+		expect(generateSessionTitle.mock.calls[0]?.[0] ?? "").toContain("migrate the billing pipeline");
+	});
+
+	test("summary error falls back to titling the raw transcript", async () => {
+		completeImpl = async () => ({ stopReason: "error", content: [] });
+		titleImpl = async () => "Fallback title";
+		const h = makeHarness(longTranscript(), { model: { provider: "test", id: "big" } });
+		await h.runName("");
+		expect(completeSimple).toHaveBeenCalledTimes(1);
+		expect(generateSessionTitle.mock.calls[0]?.[0] ?? "").toContain("migrate the billing pipeline");
+		expect(h.names).toEqual(["Fallback title"]);
+	});
+
+	test("empty summary text falls back to titling the raw transcript", async () => {
+		// beforeEach's default completeImpl returns stopReason "stop" with blank text.
+		titleImpl = async () => "Fallback title";
+		const h = makeHarness(longTranscript(), { model: { provider: "test", id: "big" } });
+		await h.runName("");
+		expect(completeSimple).toHaveBeenCalledTimes(1);
+		expect(generateSessionTitle.mock.calls[0]?.[0] ?? "").toContain("migrate the billing pipeline");
+		expect(h.names).toEqual(["Fallback title"]);
 	});
 });
