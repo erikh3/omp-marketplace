@@ -4,7 +4,7 @@ import type {
 	InputEventResult,
 	SessionMessageEntry,
 } from "@oh-my-pi/pi-coding-agent";
-import { buildReplanTitleContext, settings } from "@oh-my-pi/pi-coding-agent";
+import { buildReplanTitleContext } from "@oh-my-pi/pi-coding-agent";
 import { generateSessionTitle } from "@oh-my-pi/pi-coding-agent/utils/title-generator";
 
 /** Status-bar slot key used while a name is being generated. */
@@ -35,12 +35,16 @@ function sessionLogDigest(ctx: ExtensionContext): string | null {
  * Generate a short session name from the transcript using the configured smol
  * title model, or `null` when there is too little signal / the model declines.
  */
-async function generateNameFromLogs(ctx: ExtensionContext): Promise<string | null> {
+async function generateNameFromLogs(pi: ExtensionAPI, ctx: ExtensionContext): Promise<string | null> {
 	const digest = sessionLogDigest(ctx);
 	if (!digest) return null;
 	// Same engine as omp auto-titling: honors `providers.tinyModel` (local tiny
 	// worker or the online `@smol` role). No online fallback is forced here.
-	return generateSessionTitle(digest, ctx.modelRegistry, settings, undefined, ctx.model ?? undefined);
+	// Use pi.pi.settings (the harness's initialized instance) to avoid the
+	// module-isolation issue: if the plugin has its own node_modules, a direct
+	// import resolves to a separate module copy whose globalInstance is null,
+	// causing the settings proxy to throw "Settings not initialized."
+	return generateSessionTitle(digest, ctx.modelRegistry, pi.pi.settings, undefined, ctx.model ?? undefined);
 }
 
 /**
@@ -57,7 +61,7 @@ async function applyName(pi: ExtensionAPI, ctx: ExtensionContext, rawArgs: strin
 
 	ctx.ui.setStatus(STATUS_KEY, "Naming session…");
 	try {
-		const generated = await generateNameFromLogs(ctx);
+		const generated = await generateNameFromLogs(pi, ctx);
 		if (!generated) {
 			ctx.ui.notify("Not enough conversation yet to name this session.", "warning");
 			return;

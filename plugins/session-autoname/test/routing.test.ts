@@ -81,6 +81,10 @@ function makeHarness(entries: SessionEntry[]) {
 		on: (event: string, handler: InputHandler): void => {
 			if (event === "input") inputHandler = handler;
 		},
+		// pi.pi is the harness's injected module; the extension accesses pi.pi.settings
+		// to avoid module-isolation bugs. generateSessionTitle is mocked so the stub
+		// value is never read — it just needs to not throw on access.
+		pi: { settings: {} },
 		// Structural mock: the extension uses only the members above. Casting at
 		// this test-only boundary avoids stubbing the entire ExtensionAPI surface.
 	} as unknown as ExtensionAPI;
