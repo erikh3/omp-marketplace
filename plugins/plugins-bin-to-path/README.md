@@ -6,30 +6,7 @@ bundled executables (e.g. `bg-gradle`) run by bare name under omp.
 Unlike Claude Code, omp does **not** natively add plugin `bin/` dirs to the Bash
 tool's `PATH`. This extension fills that gap.
 
-## Two distributions
-
-This repo ships the logic in two forms. Pick one — do not run both at once.
-
-| Form | File | Mechanism | PATH rendering |
-|------|------|-----------|----------------|
-| **Top-level extension** (recommended) | `extensions/bin-to-path.ts` | one-shot `process.env.PATH` mutation at `session_start` | clean — no per-call `env` |
-| **Marketplace plugin** | `src/plugins-bin-to-path.ts` | per-call `tool_call` `input.env` + `user_bash` result | renders `PATH=… command` on gated calls |
-
-The top-level extension is preferred: it is simpler, has zero per-call overhead,
-and never pollutes the rendered command line. The plugin form exists only for
-users who need marketplace distribution/versioning and cannot drop a file into
-`~/.omp/agent/extensions/`.
-
-### Install the top-level extension
-
-```
-cp extensions/bin-to-path.ts ~/.omp/agent/extensions/bin-to-path.ts
-```
-
-Dropping the file **is** the enable step. Restart omp. Disable the marketplace
-plugin if it was previously linked (`omp plugin disable plugins-bin-to-path`).
-
-### Install the marketplace plugin (alternative)
+## Install
 
 ```
 bun i
@@ -37,11 +14,12 @@ bun run typecheck   # tsc --noEmit
 omp plugin link ./plugins/plugins-bin-to-path
 ```
 
+Restart omp after linking.
+
 ## Design rationale — omp's levers for the Bash PATH
 
-Investigation of omp v17.2.12 (`dist/cli.js`) established which levers can put a
-directory on the Bash tool's `PATH`, and — critically — that the answer depends
-on **load order**.
+Investigation of omp v17 (`dist/cli.js`) established which levers can put a
+directory on the Bash tool's `PATH`.
 
 ### What omp does NOT provide
 
@@ -54,32 +32,43 @@ on **load order**.
 | `pi.exec(cmd, args, opts)` | `ExecOptions` has no `env`; runs the extension's own subprocess, not the bash tool. |
 | `ExtensionAPI.setEnv` / `registerShellEnv` | No such method exists. |
 
-### The mechanism, and why load order decides everything
+### Why a one-shot `process.env.PATH` mutation is not enough
 
-The Bash tool builds each command's environment from `getShellConfig().env`,
-which reads live `process.env` (`Bun.env`) — **but** the persistent shell caches
-its environment at first spawn, keyed by session.
+An earlier design tried a single `process.env.PATH` mutation at `session_start`,
+on the theory that the extension loads before omp's persistent shell spawns, so
+the mutation would be inherited by both the model `bash` tool and the `!` bang
+shell. **That assumption is false in practice.**
 
-- A **top-level extension** (`~/.omp/agent/extensions/*.ts`) loads *before* that
-  first shell spawn. A single `process.env.PATH` mutation at `session_start`
-  therefore lands on both the model `bash` tool and the `!` bang shell. One
-  write, no per-call work. (Verified: `bg-gradle` resolves on both surfaces.)
-- A **marketplace plugin** loads *after* the shell env is captured. The same
-  `process.env` mutation reaches neither surface (verified: agent tool
-  `command -v` exit 1, bang `PATH` dev-tools count 0). A plugin therefore has
-  only two levers that reach the Bash tool, and must use both:
-  - `tool_call` → return `{ input: { …, env: { PATH } } }`: the executor layers
-    `input.env` on top with precedence. Renders as `PATH=… command`.
-  - `user_bash` → return `{ result }`: full replacement of bang execution; the
-    plugin re-runs the command through a login shell with `PATH` prepended.
+omp's persistent shell derives its environment from a cached login-shell
+snapshot, and the shell process is a project-scoped daemon that is **reused
+across omp invocations** — it is typically spawned by an earlier session, long
+before the current session's `session_start` runs. The live `process.env`
+mutation therefore never reaches it. (Verified: after `session_start`, the
+plugin `bin/` dirs are present in the `eval` kernel's `process.env.PATH` but
+absent from the `bash` tool's shell PATH, and `bg-gradle` fails with exit 127.)
 
-Both plugin handlers are gated on `commandUsesBinary` so only commands that
-actually reference a bundled executable are touched; unrelated calls render
-clean and run natively.
+The mutation does still reach surfaces that read the live `process.env` in this
+process — the `eval` JS/Python kernels and children an extension spawns — so the
+plugin keeps it for those, but it cannot be the mechanism for the Bash tool.
+
+### The two levers that actually reach the Bash surfaces
+
+| Surface | Hook | Mechanism |
+|---------|------|-----------|
+| Model `bash` tool | `tool_call` | return `{ input: { …, env: { PATH } } }`; the executor layers `input.env` on top with precedence (renders as `PATH=… command`) |
+| `!` bang shell | `user_bash` | return `{ result }`; the command is re-run through a login shell (`getShellConfig()`) with `PATH` prepended |
+
+Injecting `env.PATH` **replaces** the shell PATH wholesale (no `$PATH`
+expansion of the injected value), so the base is seeded from the launch
+`process.env.PATH` — a superset of the shell's snapshot PATH — which preserves
+every dir the shell needs while adding the bundled bin dirs.
+
+Both handlers are gated on `commandUsesBinary` so only commands that actually
+reference a bundled executable are touched; unrelated calls render clean and run
+natively.
 
 ### Conclusion
 
-For a marketplace **plugin**, the two-handler (`tool_call` + `user_bash`) design
-is the only viable approach — omp exposes no env/PATH lever a plugin can set
-once. The clean one-shot `process.env.PATH` mutation is available **only** to a
-top-level extension, which is why that is the recommended form.
+omp exposes no env/PATH lever a plugin can set once for the Bash tool. The
+per-call two-handler design (`tool_call` + `user_bash`), gated on
+`commandUsesBinary`, is the only reliable approach.
