@@ -232,7 +232,8 @@ export function evaluate(ctx: Ctx, data: string): EvaluateResult {
 	// ── 1. ESC ──────────────────────────────────────────────────────────────
 	if (isEscape(data)) {
 		if (ctx.state.mode === "visual" || ctx.state.mode === "visual-line") {
-			// Drop selection, return to NORMAL
+			// Drop selection and any pending text-object/char-find, return to NORMAL
+			resetInput(ctx.state);
 			ctx.state.visualAnchor = null;
 			return { intents: [{ kind: "setMode", mode: "normal" }], undoUnit: false };
 		}
@@ -356,6 +357,12 @@ export function evaluate(ctx: Ctx, data: string): EvaluateResult {
 
 	// ── 10. Visual mode non-motion keys ─────────────────────────────────────
 	if (ctx.state.mode === "visual" || ctx.state.mode === "visual-line") {
+		// `i` / `a` introduce a text object (viw/vaw/vi(/…): the next key names
+		// the object, whose range becomes the selection. Set pending and wait.
+		if (data === "i" || data === "a") {
+			ctx.state.input.textObject = data;
+			return { intents: [], undoUnit: false }; // incomplete: waiting for object key
+		}
 		// pendingG / charPending already handled above; other visual-specific
 		// keys are checked here and, if consumed, we return.
 		const visualIntents = handleVisualKey(ctx, data);
@@ -520,7 +527,8 @@ function resolveTextObject(ctx: Ctx, objectKey: string): EditIntent[] {
 	const kind = ctx.state.input.textObject;
 	const op = ctx.state.input.operator;
 	ctx.state.input.textObject = null;
-	if (kind === null || op === null) {
+	const inVisual = ctx.state.mode === "visual" || ctx.state.mode === "visual-line";
+	if (kind === null || (op === null && !inVisual)) {
 		resetInput(ctx.state);
 		return [];
 	}
@@ -545,6 +553,17 @@ function resolveTextObject(ctx: Ctx, objectKey: string): EditIntent[] {
 	if (range === null) {
 		resetInput(ctx.state);
 		return [];
+	}
+	if (op === null) {
+		// Visual mode: set the selection to the object range instead of
+		// operating on it. Anchor at the object start, live cursor on the
+		// object's inclusive last character; stay in visual mode.
+		resetInput(ctx.state);
+		const lines = ctx.host.getLines();
+		const start = absToLineCol(lines, range.startAbs);
+		const end = absToLineCol(lines, Math.max(range.startAbs, range.endAbs - 1));
+		ctx.state.visualAnchor = { line: start.line, col: start.col };
+		return [{ kind: "moveCursor", to: { line: end.line, col: end.col } }];
 	}
 	if (op === "y") {
 		const intents = yankCharwise(ctx, range.startAbs, range.endAbs);
