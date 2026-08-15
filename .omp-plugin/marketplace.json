@@ -30,6 +30,30 @@
       "source": "./session-autoname",
       "category": "productivity",
       "homepage": "https://github.com/erikh3/omp-marketplace/tree/main/plugins/session-autoname"
+    },
+    {
+      "name": "omp-permission-guard",
+      "description": "Classifier-based tool-approval gate (heuristic / guardian / hybrid) for the oh-my-pi coding agent. Vendored from hank-warren, pinned to a reviewed commit in erikh3's fork.",
+      "source": {
+        "source": "github",
+        "repo": "erikh3/omp-permission-guard",
+        "ref": "main",
+        "sha": "3f17e9e38d52ab2c2905f9016763186ad0bd0ac5"
+      },
+      "version": "0.3.0",
+      "author": {
+        "name": "Hank Warren"
+      },
+      "repository": "https://github.com/erikh3/omp-permission-guard",
+      "homepage": "https://github.com/hank-warren/omp-permission-guard",
+      "license": "MIT",
+      "category": "security",
+      "keywords": [
+        "permissions",
+        "approval",
+        "security",
+        "guardian"
+      ]
     }
   ]
 }
