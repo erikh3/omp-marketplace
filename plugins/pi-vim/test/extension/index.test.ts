@@ -9,6 +9,7 @@
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { ExtensionAPI, ExtensionContext, ExtensionUIContext, AppKeybinding, Theme } from "@oh-my-pi/pi-coding-agent";
+import { theme } from "@oh-my-pi/pi-coding-agent";
 import type { EditorTheme } from "@oh-my-pi/pi-tui";
 import { ModalVimEditor } from "../../src/modal-editor.ts";
 import piVim from "../../src/index.ts";
@@ -403,4 +404,56 @@ describe("piVim extension wiring", () => {
 			expect(stdoutWrites).toContain("\x1b[5 q");
 		});
 	});
+});
+
+// ---------------------------------------------------------------------------
+// Regression: magic-keyword rendering must not crash under the extension's
+// own module instance of the coding-agent source graph.
+//
+// The extension package's `main` is `src/index.ts`, so loading pi-vim pulls in
+// a SECOND module instance of the coding-agent source, separate from the
+// running `dist/cli.js` bundle. That instance's global `theme` is never
+// initialised by the host, so the magic-keyword gradient highlighter reached
+// from the editor's `decorateText` (`palette()` -> `theme.getColorMode()`)
+// threw "undefined is not an object" and crashed the render loop the moment a
+// magic keyword ("ultrathink", "orchestrate", "workflowz") appeared in the
+// prompt. session_start must initialise this instance's theme so the render
+// path resolves a valid color mode.
+// ---------------------------------------------------------------------------
+
+/** Strip SGR color escapes so the visible text can be asserted. */
+function stripAnsi(s: string): string {
+	// biome-ignore lint/suspicious/noControlCharactersInRegex: matching ANSI SGR escapes.
+	return s.replace(/\x1b\[[0-9;]*m/g, "");
+}
+
+describe("piVim magic-keyword theme init", () => {
+	test("session_start initialises the coding-agent theme instance", async () => {
+		const { pi, fireStart } = makeMocks();
+		piVim(pi);
+		await fireStart(true);
+		// The gradient highlighter dereferences `theme.getColorMode()`; the
+		// instance must be defined (and expose that method) after start.
+		expect(typeof theme).not.toBe("undefined");
+		expect(typeof theme.getColorMode).toBe("function");
+	});
+
+	test.each(["ultrathink", "orchestrate", "workflowz"])(
+		"decorating %s through the editor does not throw after start",
+		async (keyword) => {
+			const { pi, fireStart } = makeMocks();
+			piVim(pi);
+			const editor = (await fireStart(true))!;
+			// This is the exact path that crashed: the editor's decorateText hook
+			// runs the magic-keyword gradient highlighter, which calls
+			// `theme.getColorMode()`. Before the fix this threw a TypeError.
+			let decorated = "";
+			expect(() => {
+				decorated = editor.decorateText(keyword);
+			}).not.toThrow();
+			// The gradient injects only zero-width SGR escapes, so the visible
+			// text is unchanged once the color codes are stripped.
+			expect(stripAnsi(decorated)).toContain(keyword);
+		},
+	);
 });
