@@ -1,5 +1,5 @@
 import type { ExtensionAPI } from "@oh-my-pi/pi-coding-agent";
-import { settings, initTheme, theme } from "@oh-my-pi/pi-coding-agent";
+import { settings, setThemeInstance } from "@oh-my-pi/pi-coding-agent";
 import { BUILTIN_SLASH_COMMAND_RESERVED_NAMES } from "@oh-my-pi/pi-coding-agent/slash-commands/builtin-registry";
 import { ModalVimEditor, type VimMode } from "./modal-editor.js";
 import { ModeWidget } from "./mode-widget.js";
@@ -47,19 +47,14 @@ export default function piVim(pi: ExtensionAPI): void {
 		// graph (package `main` is `src/index.ts`), separate from the running
 		// `dist/cli.js` bundle whose global `theme` was initialised at boot. Our
 		// instance's `theme` starts undefined, so any src-instance render path that
-		// dereferences it (notably the magic-keyword gradient highlighter's
-		// `theme.getColorMode()` in the editor's `decorateText`) throws
-		// "undefined is not an object" and crashes the render loop. Initialise this
-		// instance's theme once (no watcher) so those paths resolve a valid color
-		// mode. Color-mode detection is terminal-capability based, so it matches the
-		// host regardless of which named theme loads.
-		if (typeof theme === "undefined") {
-			try {
-				await initTheme();
-			} catch (error) {
-				log.debug?.(`pi-vim: theme init failed: ${String(error)}`);
-			}
-		}
+		// dereferences it — notably the magic-keyword gradient highlighter's
+		// `theme.getColorMode()` in the editor's `decorateText` — throws
+		// "undefined is not an object" and crashes the render loop. Adopt the host's
+		// live theme object (exposed on the UI context) into this instance's global
+		// so those paths resolve the host's real color mode and palette. This beats
+		// re-detecting a default theme: no redundant terminal probing, and the colors
+		// match the host's actually-active theme rather than drifting to a default.
+		setThemeInstance(ctx.ui.theme);
 
 		// OS-clipboard port; refreshed on NORMAL entry so a `p` reads a warm
 		// cache. Always built (paste read-on-put and copyInputToClipboard need it);
