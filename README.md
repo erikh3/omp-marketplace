@@ -34,6 +34,7 @@ A local source is any path starting with `./`, `~/`, or `/` that contains
 | --- | --- |
 | [`claude-plugin-bin-path`](plugins/claude-plugin-bin-path) | Puts each enabled Claude Code plugin's `bin/` directory on the Bash tool PATH, so bundled executables run by bare name under omp. |
 | [`session-autoname`](plugins/session-autoname) | Auto-name the session from its logs via the smol model when `/name` or `/rename` is issued without a title. |
+| [`omp-permission-guard`](https://github.com/erikh3/omp-permission-guard) | External source (fork of `hank-warren/omp-permission-guard`, pinned to a reviewed commit). Classifier-based tool-approval gate (heuristic / guardian / hybrid). |
 
 ## Install a plugin
 
