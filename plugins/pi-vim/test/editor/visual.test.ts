@@ -600,3 +600,74 @@ describe("visual charwise — selection crossing newline", () => {
 		expect(t).toBe("d\nef");
 	});
 });
+
+// ─── 13. Text objects in visual mode — viw / vaw / vi( select the object ─────
+
+describe("visual text objects — i/a introduce a text object, not insert mode", () => {
+	// Regression: in visual mode `i`/`a` must NOT drop into insert; they begin a
+	// text-object selection (viw/vaw/vi(/…). Esc is the only escape hatch.
+	vt.each([
+		{
+			name: "v i keeps visual mode awaiting the object key (no insert)",
+			before: "|hello",
+			keys: "<Esc>vi",
+			after: "|hello",
+			mode: "visual",
+		},
+		{
+			name: "v a keeps visual mode awaiting the object key (no insert)",
+			before: "|hello",
+			keys: "<Esc>va",
+			after: "|hello",
+			mode: "visual",
+		},
+		{
+			name: "v i <Esc> cancels the pending object and returns to normal",
+			before: "|hello",
+			keys: "<Esc>vi<Esc>",
+			after: "|hello",
+			mode: "normal",
+		},
+	]);
+
+	test("v i w selects the inner word (proved by deleting it)", () => {
+		const h = createHarness();
+		h.seed("|hello world");
+		h.send("<Esc>viwd");
+		expect(h.ed.mode).toBe("normal");
+		expect(h.ed.getText()).toBe(" world");
+	});
+
+	test("v a w selects a word incl. trailing whitespace", () => {
+		const h = createHarness();
+		h.seed("|hello world");
+		h.send("<Esc>vawd");
+		expect(h.ed.mode).toBe("normal");
+		expect(h.ed.getText()).toBe("world");
+	});
+
+	test("v i ( selects inside parens", () => {
+		const h = createHarness();
+		h.seed("foo(ba|r)baz");
+		h.send("<Esc>vi(d");
+		expect(h.ed.mode).toBe("normal");
+		expect(h.ed.getText()).toBe("foo()baz");
+	});
+
+	// Visual-line mode: `i`/`a` still introduce an object, but the selection
+	// stays linewise — the object's span only decides which lines are covered.
+	test("V i w stays linewise and selects the line the word spans", () => {
+		const h = createHarness();
+		h.seed("foo b|ar baz\nsecond");
+		h.send("<Esc>Viwd");
+		expect(h.ed.mode).toBe("normal");
+		expect(h.ed.getText()).toBe("second");
+	});
+
+	test("V a w does not enter insert mode", () => {
+		const h = createHarness();
+		h.seed("|hello world");
+		h.send("<Esc>Va");
+		expect(h.ed.mode).toBe("visual-line");
+	});
+});
