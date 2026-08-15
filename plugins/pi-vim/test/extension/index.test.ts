@@ -23,6 +23,7 @@ const themeStub = {
 	borderColor: (s: string) => s,
 	fg: (_color: unknown, s: string) => s,
 	bg: (_color: unknown, s: string) => s,
+	getColorMode: () => "truecolor",
 } as unknown as Theme;
 
 /** Minimal EditorTheme for the editor factory. */
@@ -417,8 +418,8 @@ describe("piVim extension wiring", () => {
 // from the editor's `decorateText` (`palette()` -> `theme.getColorMode()`)
 // threw "undefined is not an object" and crashed the render loop the moment a
 // magic keyword ("ultrathink", "orchestrate", "workflowz") appeared in the
-// prompt. session_start must initialise this instance's theme so the render
-// path resolves a valid color mode.
+// prompt. session_start now adopts the host's live theme instance (from
+// ctx.ui.theme) so the render path resolves the host's real color mode.
 // ---------------------------------------------------------------------------
 
 /** Strip SGR color escapes so the visible text can be asserted. */
@@ -428,13 +429,14 @@ function stripAnsi(s: string): string {
 }
 
 describe("piVim magic-keyword theme init", () => {
-	test("session_start initialises the coding-agent theme instance", async () => {
+	test("session_start adopts the host's live theme instance", async () => {
 		const { pi, fireStart } = makeMocks();
 		piVim(pi);
 		await fireStart(true);
-		// The gradient highlighter dereferences `theme.getColorMode()`; the
-		// instance must be defined (and expose that method) after start.
-		expect(typeof theme).not.toBe("undefined");
+		// The extension must share the host's actual theme object (from
+		// ctx.ui.theme), not a separately re-detected default, so the gradient
+		// highlighter's `theme.getColorMode()` resolves the host's real mode.
+		expect(theme).toBe(themeStub);
 		expect(typeof theme.getColorMode).toBe("function");
 	});
 
