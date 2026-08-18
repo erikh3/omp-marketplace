@@ -54,6 +54,7 @@ Motions accept a `{count}` prefix (e.g. `3j`, `12l`).
 | Key | Action |
 | --- | --- |
 | `h` `l` `j` `k` | Left / right / down / up |
+| `←` `→` `↓` `↑` | Same as `h` / `l` / `j` / `k` (on an empty prompt they pass through to omp instead — double-tap `←` opens the agent hub, `↑`/`↓` walk prompt history) |
 | `w` `W` `b` `B` `e` `E` | word / WORD start-forward, back, end-forward |
 | `0` `^` `$` | Line start / first non-blank / end |
 | `{` `}` | Previous / next paragraph |
