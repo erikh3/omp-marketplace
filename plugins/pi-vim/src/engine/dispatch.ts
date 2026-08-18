@@ -114,6 +114,18 @@ function isAppChord(data: string): boolean {
 	return can.includes("+") && !can.startsWith("shift+");
 }
 
+/**
+ * Arrow-key canonical id → the NORMAL/VISUAL motion key it stands in for. Vim
+ * treats the arrows as `h`/`l`/`k`/`j`; the evaluator re-dispatches through the
+ * matching character so counts, operators, and visual resize compose identically.
+ */
+const ARROW_TO_HJKL: Readonly<Record<string, string>> = {
+	left: "h",
+	right: "l",
+	up: "k",
+	down: "j",
+};
+
 /** True if the current character is blank/whitespace (for cw→ce). */
 function cursorOnBlank(ctx: Ctx): boolean {
 	const { line, col } = ctx.host.getCursor();
@@ -275,6 +287,19 @@ export function evaluate(ctx: Ctx, data: string): EvaluateResult {
 	if (isAppChord(data)) {
 		resetInput(ctx.state);
 		return { intents: [{ kind: "forward", data }], undoUnit: true };
+	}
+
+	// ── Arrow keys ────────────────────────────────────────────────────────────
+	// On an empty prompt with no command in flight, forward the raw arrow to the
+	// base editor (INSERT parity): this lets the host see ←/↑ so its double-tap-←
+	// agent-hub gesture and ↑/↓ prompt-history fire in NORMAL/VISUAL too. With
+	// buffer content or a pending command, arrows are motions — re-dispatch as the
+	// equivalent h/l/k/j so counts, operators, and visual resize all compose.
+	if (canonical !== undefined && ARROW_TO_HJKL[canonical] !== undefined) {
+		if (!hasPending(ctx.state) && ctx.host.getText().trim() === "") {
+			return { intents: [{ kind: "forward", data }], undoUnit: false };
+		}
+		return evaluate(ctx, ARROW_TO_HJKL[canonical]);
 	}
 
 	// ── 4. Digit prefix ──────────────────────────────────────────────────────
