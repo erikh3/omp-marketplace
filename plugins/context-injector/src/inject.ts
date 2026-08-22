@@ -1,13 +1,27 @@
-import type { ExtensionAPI, Skill, SkillInvocationKind } from "@oh-my-pi/pi-coding-agent";
+import type { ExtensionAPI, Skill } from "@oh-my-pi/pi-coding-agent";
 import { buildSkillPromptMessage, getActiveSkills } from "@oh-my-pi/pi-coding-agent";
-import { existsSync, readFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { existsSync, readFileSync, statSync } from "node:fs";
+import { basename, join, resolve } from "node:path";
 import { homedir } from "node:os";
 import type { InjectionEntry } from "./types.ts";
 
-/** Returns the skill name when the entry uses the `skill://` scheme, else null. */
-export const skillNameOf = (path: string): string | null =>
-	path.startsWith("skill://") ? path.slice("skill://".length).trim() : null;
+/** Maximum bytes read from a single file before it is skipped. */
+const MAX_FILE_BYTES = 512 * 1024;
+
+/** Valid skill name: lowercase alphanumeric and hyphens, must start and end with alphanumeric. */
+const SKILL_NAME_RE = /^[a-z0-9][a-z0-9-]*[a-z0-9]$|^[a-z0-9]$/;
+
+/**
+ * Returns the skill name when the entry uses the `skill://` scheme AND the
+ * name is a non-empty, valid identifier. Returns null for everything else
+ * (file paths, globs, bare scheme `skill://`, whitespace-only names).
+ */
+export function skillNameOf(path: string): string | null {
+	if (!path.startsWith("skill://")) return null;
+	const name = path.slice("skill://".length).trim();
+	if (!name || !SKILL_NAME_RE.test(name)) return null;
+	return name;
+}
 
 const expandHome = (p: string): string =>
 	p === "~" || p.startsWith("~/") ? join(homedir(), p.slice(1)) : p;
@@ -15,17 +29,21 @@ const expandHome = (p: string): string =>
 function resolveFilePaths(rawPath: string): string[] {
 	const expanded = expandHome(rawPath);
 	if (/[*?{[]/.test(expanded)) {
-		return Array.from(
-			new Bun.Glob(expanded).scanSync({ absolute: true, onlyFiles: true }),
-		);
+		try {
+			return Array.from(
+				new Bun.Glob(expanded).scanSync({ absolute: true, onlyFiles: true }),
+			);
+		} catch {
+			return [];
+		}
 	}
 	return existsSync(expanded) ? [resolve(expanded)] : [];
 }
 
 /**
  * Read all files matched by `rawPath` and concatenate their contents.
- * Multiple glob matches are separated by filename comments so the model
- * can attribute content to individual files.
+ * Files exceeding MAX_FILE_BYTES are skipped. Multiple glob matches are
+ * separated by filename (basename only) comments.
  * Returns null when no readable files are found.
  */
 export function buildFileContent(rawPath: string): string | null {
@@ -34,11 +52,13 @@ export function buildFileContent(rawPath: string): string | null {
 
 	for (const filePath of matches) {
 		try {
+			const size = statSync(filePath).size;
+			if (size > MAX_FILE_BYTES) continue;
 			const text = readFileSync(filePath, "utf8").trimEnd();
 			if (!text) continue;
-			parts.push(matches.length > 1 ? `<!-- ${filePath} -->\n${text}` : text);
+			parts.push(matches.length > 1 ? `<!-- ${basename(filePath)} -->\n${text}` : text);
 		} catch {
-			// Unreadable — skip silently; caller logs the miss
+			// Unreadable or stat failed — skip silently; caller logs the miss
 		}
 	}
 
@@ -69,12 +89,13 @@ export async function buildSkillContent(
 	});
 
 	try {
-		const { message } = await buildSkillPromptMessage(
-			skill,
-			"",
-			"autoload" as SkillInvocationKind,
-		);
-		return message;
+		const result = await buildSkillPromptMessage(skill, "", "autoload");
+		// Guard against future API shape changes
+		if (!result?.message || typeof result.message !== "string") {
+			logger.warn(`context-injector: unexpected response shape from buildSkillPromptMessage for '${name}'`);
+			return null;
+		}
+		return result.message;
 	} catch (err) {
 		logger.warn(`context-injector: failed to render skill '${name}'`, { err });
 		return null;
@@ -91,9 +112,15 @@ export async function buildSection(
 ): Promise<string | null> {
 	const skillName = skillNameOf(entry.path);
 
-	const content = skillName !== null
-		? await buildSkillContent(skillName, logger)
-		: buildFileContent(entry.path);
+	let content: string | null;
+	try {
+		content = skillName !== null
+			? await buildSkillContent(skillName, logger)
+			: buildFileContent(entry.path);
+	} catch (err) {
+		logger.warn(`context-injector: unexpected error resolving entry`, { path: entry.path, err });
+		return null;
+	}
 
 	if (!content) {
 		logger.debug(`context-injector: no content for entry`, { path: entry.path });

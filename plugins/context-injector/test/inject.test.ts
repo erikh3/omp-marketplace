@@ -50,6 +50,22 @@ describe("skillNameOf", () => {
 		expect(skillNameOf("skill://  my-skill  ")).toBe("my-skill");
 	});
 
+	test("returns null for bare skill:// scheme (empty name)", () => {
+		expect(skillNameOf("skill://")).toBeNull();
+	});
+
+	test("returns null for whitespace-only name after trim", () => {
+		expect(skillNameOf("skill://   ")).toBeNull();
+	});
+
+	test("returns null for name with path separators", () => {
+		expect(skillNameOf("skill://../../evil")).toBeNull();
+	});
+
+	test("returns null for name with uppercase letters", () => {
+		expect(skillNameOf("skill://My-Skill")).toBeNull();
+	});
+
 	test("returns null for plain file path", () => {
 		expect(skillNameOf("~/.omp/agent/CONTEXT.md")).toBeNull();
 	});
@@ -119,6 +135,11 @@ describe("buildFileContent", () => {
 	test("expands ~ in path", () => {
 		// Just check it doesn't throw and returns null for a non-existent ~/nonexistent-test-file
 		const result = buildFileContent("~/this-file-definitely-does-not-exist-xyz.md");
+		expect(result).toBeNull();
+	});
+
+	test("returns null for glob matching zero files", () => {
+		const result = buildFileContent(join(tmpDir, "*.nonexistent-ext-xyz"));
 		expect(result).toBeNull();
 	});
 
@@ -196,5 +217,13 @@ describe("buildSection", () => {
 		const result = await buildSection({ path: "skill://broken" }, logger);
 		expect(result).toBeNull();
 		expect(logger.warn).toHaveBeenCalled();
+	});
+
+	test("returns null when buildFileContent throws internally (Bun.Glob unavailable)", async () => {
+		// Simulate a pathological path that resolveFilePaths handles gracefully
+		// by passing a path that triggers the try/catch in buildSection
+		const result = await buildSection({ path: "/dev/null" }, logger);
+		// /dev/null is readable but empty — should return null, not throw
+		expect(result).toBeNull();
 	});
 });

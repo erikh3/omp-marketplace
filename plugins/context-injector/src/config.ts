@@ -66,7 +66,19 @@ export function loadConfig(configPath: string): ContextInjectorConfig | null {
  * User:     ~/.omp/agent/context-injector.yml  (profile-aware via getAgentDir)
  */
 export function loadMergedConfig(cwd: string): ContextInjectorConfig {
-	const project = loadConfig(join(cwd, ".omp", CONFIG_FILE));
-	const user = loadConfig(join(getAgentDir(), CONFIG_FILE));
-	return { inject: [...(project?.inject ?? []), ...(user?.inject ?? [])] };
+	const tryLoad = (configPath: string): ContextInjectorConfig["inject"] => {
+		try {
+			return loadConfig(configPath)?.inject ?? [];
+		} catch (err) {
+			// Log and skip the invalid file rather than taking down both configs
+			console.warn(`context-injector: skipping invalid config at ${configPath}:`, err);
+			return [];
+		}
+	};
+	return {
+		inject: [
+			...tryLoad(join(cwd, ".omp", CONFIG_FILE)),
+			...tryLoad(join(getAgentDir(), CONFIG_FILE)),
+		],
+	};
 }

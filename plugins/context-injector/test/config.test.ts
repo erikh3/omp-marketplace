@@ -149,4 +149,44 @@ describe("loadMergedConfig", () => {
 		expect(result.inject[0]?.path).toBe("skill://project-skill");
 		expect(result.inject[1]?.path).toBe("skill://user-skill");
 	});
+
+	test("skips invalid user config and returns project config", () => {
+		writeFileSync(
+			join(projectDir, ".omp", "context-injector.yml"),
+			'inject:\n  - path: "skill://project-skill"\n',
+		);
+		writeFileSync(
+			join(agentDir, "context-injector.yml"),
+			"- this is not a valid mapping\n",
+		);
+		const result = loadMergedConfig(projectDir);
+		expect(result.inject).toHaveLength(1);
+		expect(result.inject[0]?.path).toBe("skill://project-skill");
+	});
+
+	test("skips invalid project config and returns user config", () => {
+		writeFileSync(
+			join(projectDir, ".omp", "context-injector.yml"),
+			"- this is not a valid mapping\n",
+		);
+		writeFileSync(
+			join(agentDir, "context-injector.yml"),
+			'inject:\n  - path: "skill://user-skill"\n',
+		);
+		const result = loadMergedConfig(projectDir);
+		expect(result.inject).toHaveLength(1);
+		expect(result.inject[0]?.path).toBe("skill://user-skill");
+	});
+
+	test("returns empty inject list when both configs are invalid", () => {
+		writeFileSync(
+			join(projectDir, ".omp", "context-injector.yml"),
+			"- bad\n",
+		);
+		writeFileSync(
+			join(agentDir, "context-injector.yml"),
+			"- bad\n",
+		);
+		expect(loadMergedConfig(projectDir)).toEqual({ inject: [] });
+	});
 });

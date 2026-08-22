@@ -81,7 +81,7 @@ export default function contextInjector(pi: ExtensionAPI): void {
 				customType: "context-injector",
 				content: sections.join("\n\n---\n\n"),
 				display: anyDisplay,
-				attribution: "user" as const,
+				attribution: "agent" as const,
 			},
 		};
 	});
