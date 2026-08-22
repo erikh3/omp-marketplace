@@ -5,10 +5,6 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
-// ---------------------------------------------------------------------------
-// Mock getActiveSkills and buildSkillPromptMessage before importing inject.ts
-// ---------------------------------------------------------------------------
-
 let activeSkills: Skill[] = [];
 const getActiveSkills = mock(() => activeSkills);
 
@@ -26,20 +22,12 @@ mock.module("@oh-my-pi/pi-coding-agent", () => ({
 
 const { skillNameOf, buildFileContent, buildSection } = await import("../src/inject.ts");
 
-// ---------------------------------------------------------------------------
-// Minimal logger stub
-// ---------------------------------------------------------------------------
-
 const logger = {
 	debug: mock(() => {}),
 	warn: mock(() => {}),
 	info: mock(() => {}),
 	error: mock(() => {}),
 } as unknown as Parameters<typeof buildSection>[1];
-
-// ---------------------------------------------------------------------------
-// skillNameOf
-// ---------------------------------------------------------------------------
 
 describe("skillNameOf", () => {
 	test("returns name for skill:// scheme", () => {
@@ -82,10 +70,6 @@ describe("skillNameOf", () => {
 		expect(skillNameOf("my-skill")).toBeNull();
 	});
 });
-
-// ---------------------------------------------------------------------------
-// buildFileContent
-// ---------------------------------------------------------------------------
 
 describe("buildFileContent", () => {
 	let tmpDir: string;
@@ -148,10 +132,6 @@ describe("buildFileContent", () => {
 		rmSync(tmpDir, { recursive: true, force: true });
 	});
 });
-
-// ---------------------------------------------------------------------------
-// buildSection
-// ---------------------------------------------------------------------------
 
 describe("buildSection", () => {
 	let tmpDir: string;

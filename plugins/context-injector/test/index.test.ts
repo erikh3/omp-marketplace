@@ -1,10 +1,6 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import type { ExtensionAPI } from "@oh-my-pi/pi-coding-agent";
 
-// ---------------------------------------------------------------------------
-// Minimal ExtensionAPI stub
-// ---------------------------------------------------------------------------
-
 type EventName = "session_start" | "before_agent_start";
 type Handler = (event: unknown, ctx: unknown) => Promise<unknown>;
 
@@ -41,10 +37,6 @@ function makeApi() {
 	return { pi, fireSessionStart, fireBeforeAgentStart };
 }
 
-// ---------------------------------------------------------------------------
-// Mock loadMergedConfig and buildSection so index.ts is fully isolated
-// ---------------------------------------------------------------------------
-
 import * as realConfig from "../src/config.ts";
 import * as realInject from "../src/inject.ts";
 import type { InjectionEntry } from "../src/types.ts";
@@ -64,10 +56,6 @@ mock.module("../src/inject.ts", () => ({ ...realInject, buildSection }));
 
 // Dynamic import after mock.module so index.ts binds to mocked deps
 const { default: contextInjector } = await import("../src/index.ts");
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 describe("contextInjector extension", () => {
 	let api: ReturnType<typeof makeApi>;

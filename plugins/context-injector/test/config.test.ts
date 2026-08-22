@@ -16,10 +16,6 @@ mock.module("@oh-my-pi/pi-coding-agent", () => ({
 
 const { loadConfig, loadMergedConfig } = await import("../src/config.ts");
 
-// ---------------------------------------------------------------------------
-// loadConfig
-// ---------------------------------------------------------------------------
-
 describe("loadConfig", () => {
 	let tmpDir: string;
 
@@ -90,10 +86,6 @@ describe("loadConfig", () => {
 		expect(() => loadConfig(file)).toThrow();
 	});
 });
-
-// ---------------------------------------------------------------------------
-// loadMergedConfig
-// ---------------------------------------------------------------------------
 
 describe("loadMergedConfig", () => {
 	let tmpDir: string;
