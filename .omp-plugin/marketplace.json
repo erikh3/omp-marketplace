@@ -54,6 +54,13 @@
         "security",
         "guardian"
       ]
+    },
+    {
+      "name": "context-injector",
+      "description": "Inject skills and arbitrary file contents into the LLM context at agent-start time. Supports skill:// URIs (resolved via omp's active skill registry), filesystem paths, and globs. Configurable via context-injector.yml with per-entry once/display flags and both user and project scopes.",
+      "source": "./context-injector",
+      "category": "productivity",
+      "homepage": "https://github.com/erikh3/omp-marketplace/tree/main/plugins/context-injector"
     }
   ]
 }
