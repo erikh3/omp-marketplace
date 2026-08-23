@@ -1,10 +1,60 @@
 import { type ExtensionAPI } from "@oh-my-pi/pi-coding-agent";
 import { isToolCallEventType } from "@oh-my-pi/pi-coding-agent/extensibility/extensions";
 import type { BashResult } from "@oh-my-pi/pi-coding-agent/exec/bash-executor";
-import { getShellConfig } from "@oh-my-pi/pi-utils/procmgr";
 import { delimiter, join } from "node:path";
-import { getPluginsDir } from "@oh-my-pi/pi-utils/dirs";
+import * as os from "node:os";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
+
+interface ShellConfig {
+	shell: string;
+	args: string[];
+	env: Record<string, string>;
+}
+
+function getShellConfig(): ShellConfig {
+	const env: Record<string, string> = {
+		...(Bun.env as Record<string, string>),
+		GIT_EDITOR: "true",
+		GPG_TTY: "not a tty",
+		OMPCODE: "1",
+		CLAUDECODE: "1",
+		CI: "true",
+	};
+
+	let shell: string;
+	if (process.platform === "win32") {
+		shell = Bun.env.ComSpec ?? Bun.env.COMSPEC ?? "C:\\Windows\\System32\\cmd.exe";
+	} else {
+		const userShell = Bun.env.SHELL;
+		if (userShell && (userShell.includes("bash") || userShell.includes("zsh")) && existsSync(userShell)) {
+			shell = userShell;
+		} else {
+			const fallbacks = ["/bin/bash", "/usr/bin/bash", "/bin/sh", "/usr/bin/sh"];
+			shell = fallbacks.find(p => existsSync(p)) ?? "sh";
+		}
+	}
+
+	const noLogin = Bun.env.PI_BASH_NO_LOGIN ?? Bun.env.CLAUDE_BASH_NO_LOGIN;
+	const args = noLogin ? ["-c"] : ["-l", "-c"];
+
+	return { shell, args, env };
+}
+
+/**
+* Returns the omp plugins directory (~/.omp/plugins), respecting the
+* PI_CONFIG_DIR override and XDG_DATA_HOME (Linux) when present.
+*/
+function getPluginsDir(): string {
+	const configDirName = Bun.env.PI_CONFIG_DIR ?? ".omp";
+	// XDG_DATA_HOME is only honored on Linux per omp convention.
+	if (process.platform === "linux") {
+		const xdg = Bun.env.XDG_DATA_HOME;
+		if (xdg && existsSync(join(xdg, "omp"))) {
+			return join(xdg, "omp", "plugins");
+		}
+	}
+	return join(os.homedir(), configDirName, "plugins");
+}
 
 /** One entry in a Claude Code v2 `installed_plugins.json` plugin list. */
 interface InstalledPluginEntry {
