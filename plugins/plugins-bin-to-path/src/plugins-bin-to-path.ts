@@ -5,13 +5,6 @@ import { delimiter, join } from "node:path";
 import * as os from "node:os";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 
-// ---------------------------------------------------------------------------
-// Minimal shell-config helper — replaces @oh-my-pi/pi-utils/procmgr so this
-// extension has no transitive dependency on @oh-my-pi/pi-natives (which omp
-// v18+ can no longer resolve from runtime-loaded extensions via Bun's module
-// resolution).
-// ---------------------------------------------------------------------------
-
 interface ShellConfig {
 	shell: string;
 	args: string[];
