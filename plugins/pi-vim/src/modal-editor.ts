@@ -118,14 +118,15 @@ export class ModalVimEditor extends CustomEditor implements HostEffects {
 		// CustomEditor sets `this.decorateText` as an instance-property arrow
 		// function.  We capture it here (after super() so it exists) and wrap it
 		// with the visual-selection layer.
-		const parentDecorate = this.decorateText as ((text: string) => string) | undefined;
+		type DecorationContext = Parameters<NonNullable<CustomEditor["decorateText"]>>[1];
+		const parentDecorate = this.decorateText as ((text: string, context: DecorationContext) => string) | undefined;
 
-		this.decorateText = (text: string): string => {
+		this.decorateText = (text: string, context: DecorationContext): string => {
 			const spans = this.#selectionSpans;
 
 			// No active selection — no position tracking needed; delegate straight.
 			if (!spans || text.length === 0) {
-				return parentDecorate ? parentDecorate(text) : text;
+				return parentDecorate ? parentDecorate(text, context) : text;
 			}
 
 			// Advance the scan cursor to find this segment's position in the buffer.
@@ -135,7 +136,7 @@ export class ModalVimEditor extends CustomEditor implements HostEffects {
 
 			if (!span) {
 				// This logical line has no selected range.
-				return parentDecorate ? parentDecorate(text) : text;
+				return parentDecorate ? parentDecorate(text, context) : text;
 			}
 
 			const textEnd = startCol + text.length;
@@ -144,7 +145,7 @@ export class ModalVimEditor extends CustomEditor implements HostEffects {
 
 			if (overlapStart >= overlapEnd) {
 				// Segment is outside the selection on this line.
-				return parentDecorate ? parentDecorate(text) : text;
+				return parentDecorate ? parentDecorate(text, context) : text;
 			}
 
 			// Split text into before / selected / after relative to the segment.
@@ -160,11 +161,11 @@ export class ModalVimEditor extends CustomEditor implements HostEffects {
 			// remains visually dominant and unambiguous.
 			const { bg, reset } = getSelectionColors();
 			return (
-				(before.length > 0 ? (parentDecorate ? parentDecorate(before) : before) : "") +
+				(before.length > 0 ? (parentDecorate ? parentDecorate(before, context) : before) : "") +
 				bg +
 				selected +
 				reset +
-				(after.length > 0 ? (parentDecorate ? parentDecorate(after) : after) : "")
+				(after.length > 0 ? (parentDecorate ? parentDecorate(after, context) : after) : "")
 			);
 		};
 	}

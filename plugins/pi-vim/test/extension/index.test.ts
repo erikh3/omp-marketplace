@@ -26,10 +26,23 @@ const themeStub = {
 	getColorMode: () => "truecolor",
 } as unknown as Theme;
 
-/** Minimal EditorTheme for the editor factory. */
+/** Render-capable EditorTheme — reuses the fixture from test/editor/visual-decoration.test.ts. */
 const editorThemeStub = {
 	borderColor: (s: string) => s,
-	symbols: {} as unknown,
+	editorPaddingX: 2,
+	hintStyle: (t: string) => t,
+	symbols: {
+		inputCursor: "\u2588",
+		boxRound: {
+			topLeft: "\u256d",
+			topRight: "\u256e",
+			bottomLeft: "\u2570",
+			bottomRight: "\u256f",
+			horizontal: "\u2500",
+			vertical: "\u2502",
+		},
+	},
+	selectList: {},
 } as unknown as EditorTheme;
 
 /** Minimal KeybindingsManager — editor ignores it in headless use. */
@@ -451,11 +464,43 @@ describe("piVim magic-keyword theme init", () => {
 			// `theme.getColorMode()`. Before the fix this threw a TypeError.
 			let decorated = "";
 			expect(() => {
-				decorated = editor.decorateText(keyword);
+				decorated = editor.decorateText(keyword, { line: 0, startCol: 0, endCol: keyword.length });
 			}).not.toThrow();
 			// The gradient injects only zero-width SGR escapes, so the visible
 			// text is unchanged once the color codes are stripped.
 			expect(stripAnsi(decorated)).toContain(keyword);
 		},
 	);
+});
+
+// ---------------------------------------------------------------------------
+// Regression: typing in INSERT mode then rendering must not crash.
+//
+// ModalVimEditor wraps decorateText but its wrapper called parentDecorate(text)
+// without forwarding the context argument. The host Editor#decorate passes a
+// real EditorTextDecorationContext and reads context.line; when context arrived
+// as undefined the render loop threw "TypeError: undefined is not an object
+// (evaluating 't.line')" on the first keypress.
+// ---------------------------------------------------------------------------
+
+describe("piVim INSERT-mode render regression", () => {
+	test("typing a printable character then rendering does not throw and retains the text", async () => {
+		const { pi, fireStart } = makeMocks();
+		piVim(pi);
+		const editor = (await fireStart(true))!;
+		// Editor starts in INSERT mode after session_start.
+		expect(editor.mode).toBe("insert");
+		// Type a single printable character — goes straight through to the base
+		// editor in INSERT mode, same path as the observed first-character crash.
+		editor.handleInput("x");
+		// render() drives the full layout pass, which calls decorateText(text,
+		// context) for each visual segment. Without the context-forwarding fix
+		// this throws "undefined is not an object (evaluating 't.line')".
+		let lines: readonly string[] = [];
+		expect(() => {
+			lines = editor.render(80);
+		}).not.toThrow();
+		// The typed character must be present in the rendered output.
+		expect(lines.join("").replace(/\x1b\[[0-9;]*m/g, "")).toContain("x");
+	});
 });
