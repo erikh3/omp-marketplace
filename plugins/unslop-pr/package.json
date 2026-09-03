@@ -1,0 +1,6 @@
+{
+  "name": "unslop-pr",
+  "version": "1.0.0",
+  "description": "TTSR rule that forces unslop on PR titles and descriptions",
+  "omp": {}
+}

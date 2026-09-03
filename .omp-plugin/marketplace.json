@@ -61,6 +61,13 @@
       "source": "./context-injector",
       "category": "productivity",
       "homepage": "https://github.com/erikh3/omp-marketplace/tree/main/plugins/context-injector"
+    },
+    {
+      "name": "unslop-pr",
+      "description": "TTSR rule that intercepts create_pull_request and update_pull_request tool calls and forces the agent to load the unslop skill before writing PR titles or descriptions.",
+      "source": "./unslop-pr",
+      "category": "productivity",
+      "homepage": "https://github.com/erikh3/omp-marketplace/tree/main/plugins/unslop-pr"
     }
   ]
 }
