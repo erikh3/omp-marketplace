@@ -61,6 +61,13 @@
       "source": "./context-injector",
       "category": "productivity",
       "homepage": "https://github.com/erikh3/omp-marketplace/tree/main/plugins/context-injector"
+    },
+    {
+      "name": "github-comment-guard",
+      "description": "Blocks the AI agent from replying to human-authored GitHub comments via MCP tools or gh CLI. Only bot-authored comments (GitHub type 'Bot' or [bot] login) are replyable. Gate is on by default; toggle with /github-comment-gate [on|off].",
+      "source": "./github-comment-guard",
+      "category": "security",
+      "homepage": "https://github.com/erikh3/omp-marketplace/tree/main/plugins/github-comment-guard"
     }
   ]
 }
