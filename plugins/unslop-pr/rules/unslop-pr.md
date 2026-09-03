@@ -1,7 +1,7 @@
 ---
 name: unslop-pr
 condition: [".*"]
-scope: "tool:mcp__tools_github_mcp_create_pull_request, tool:mcp__tools_github_mcp_update_pull_request"
+scope: "tool:write(*create_pull_request), tool:write(*update_pull_request)"
 interruptMode: always
 ---
 
