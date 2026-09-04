@@ -1,6 +1,6 @@
 # omp-marketplace
 
-Personal [oh-my-pi](https://omp.sh) plugin marketplace.
+Personal [oh-my-pi](https://omp.sh) plugin marketplace. Work in progress.
 
 Catalog: [`.omp-plugin/marketplace.json`](.omp-plugin/marketplace.json).
 
