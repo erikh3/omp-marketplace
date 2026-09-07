@@ -32,8 +32,11 @@ A local source is any path starting with `./`, `~/`, or `/` that contains
 
 | Plugin | Description |
 | --- | --- |
-| [`claude-plugin-bin-path`](plugins/claude-plugin-bin-path) | Puts each enabled Claude Code plugin's `bin/` directory on the Bash tool PATH, so bundled executables run by bare name under omp. |
+| [`plugins-bin-to-path`](plugins/plugins-bin-to-path) | Puts each enabled omp plugin's `bin/` directory on the Bash tool PATH, so bundled executables run by bare name under omp. |
+| [`pi-vim`](plugins/pi-vim) | Vim-style modal editing (NORMAL/INSERT) for the omp prompt editor. Esc for NORMAL, i/a/o for INSERT, hjkl/w/b/0/$/gg/G motions, x/dd/dw/D edits. |
 | [`session-autoname`](plugins/session-autoname) | Auto-name the session from its logs via the smol model when `/name` or `/rename` is issued without a title. |
+| [`context-injector`](plugins/context-injector) | Inject skills and arbitrary file contents into the LLM context at agent-start time. Supports `skill://` URIs, filesystem paths, and globs. |
+| [`unslop-pr`](plugins/unslop-pr) | TTSR rules that intercept PR creation and update calls and force the agent to load the `unslop` skill before writing PR titles or descriptions. |
 | [`omp-permission-guard`](https://github.com/erikh3/omp-permission-guard) | External source (fork of `hank-warren/omp-permission-guard`, pinned to a reviewed commit). Classifier-based tool-approval gate (heuristic / guardian / hybrid). |
 
 ## Install a plugin
