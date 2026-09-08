@@ -32,6 +32,13 @@
       "homepage": "https://github.com/erikh3/omp-marketplace/tree/main/plugins/session-autoname"
     },
     {
+      "name": "obsidian-welcome",
+      "description": "Animated Obsidian-aware welcome screen that activates only when omp runs inside an Obsidian vault.",
+      "source": "./obsidian-welcome",
+      "category": "productivity",
+      "homepage": "https://github.com/erikh3/omp-marketplace/tree/main/plugins/obsidian-welcome"
+    },
+    {
       "name": "omp-permission-guard",
       "description": "Classifier-based tool-approval gate (heuristic / guardian / hybrid) for the oh-my-pi coding agent. Vendored from hank-warren, pinned to a reviewed commit in erikh3's fork.",
       "source": {
