@@ -68,6 +68,13 @@
       "source": "./unslop-pr",
       "category": "productivity",
       "homepage": "https://github.com/erikh3/omp-marketplace/tree/main/plugins/unslop-pr"
+    },
+    {
+      "name": "git-commit-linter",
+      "description": "Validates model-issued git commit messages against commitlint rules before Bash executes. Enforces Conventional Commits by default; defers to repository commitlint config when present. Never intercepts user bang commands or terminal commits.",
+      "source": "./git-commit-linter",
+      "category": "development",
+      "homepage": "https://github.com/erikh3/omp-marketplace/tree/main/plugins/git-commit-linter"
     }
   ]
 }
