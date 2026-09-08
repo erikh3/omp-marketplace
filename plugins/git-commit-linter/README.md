@@ -111,13 +111,41 @@ With no repository commitlint config present, the plugin enforces
 [Conventional Commits](https://www.conventionalcommits.org/) via
 `@commitlint/config-conventional`.
 
-Example valid messages:
+### Valid and invalid commit messages
 
+The bundled policy follows Conventional Commits. A valid header has a recognized
+lowercase type, an optional scope, a colon, and a non-empty subject.
+
+| Message | Result | Reason |
+|---|---|---|
+| `feat: add user login` | Valid | Recognized type and non-empty subject |
+| `fix(auth): correct token expiry` | Valid | Optional lowercase scope |
+| `chore!: drop Node 16 support` | Valid | Breaking-change marker after the type |
+| `feat(api)!: remove legacy endpoint` | Valid | Scope and breaking-change marker |
+| `add user login` | Invalid | Missing type and colon |
+| `feature: add user login` | Invalid | `feature` is not an allowed type |
+| `FEAT: add user login` | Invalid | Type must be lowercase |
+| `fix:` | Invalid | Subject is empty |
+| `fix: Correct token expiry` | Invalid | Subject starts in sentence case |
+| `fix: correct token expiry.` | Invalid | Subject ends with a full stop |
+
+Examples as complete commands:
+
+```bash
+# accepted
+git commit -m "feat: add user login"
+git commit -m "fix(auth): correct token expiry"
+git commit -m "feat!: remove legacy login"
+
+# blocked by commitlint
+git commit -m "add user login"
+git commit -m "feature: add user login"
+git commit -m "fix:"
 ```
-feat: add user login
-fix(auth): correct token expiry
-chore!: drop Node 16 support
-```
+
+Repository commitlint configuration can change these results. For example, a
+repository may allow extra types, require a ticket-shaped scope, or use different
+subject rules.
 
 ## Repository commitlint config
 
