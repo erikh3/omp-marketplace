@@ -1,0 +1,30 @@
+{
+  "name": "git-commit-linter",
+  "version": "0.1.0",
+  "description": "OMP extension that validates model-issued git commit messages against commitlint rules before Bash executes.",
+  "private": true,
+  "omp": {
+    "extensions": [
+      "./src/index.ts"
+    ]
+  },
+  "scripts": {
+    "test": "bun test --isolate",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@commitlint/config-conventional": "^21.2.2",
+    "@commitlint/lint": "^21.2.2",
+    "@commitlint/load": "^21.2.2",
+    "@commitlint/types": "^21.2.0",
+    "conventional-changelog-conventionalcommits": "^10.4.0",
+    "cosmiconfig": "^10.0.1",
+    "cosmiconfig-typescript-loader": "^6.3.0",
+    "jsonc-parser": "^3.3.1"
+  },
+  "devDependencies": {
+    "@oh-my-pi/pi-coding-agent": "^18.0.0",
+    "bun-types": "^1.4.0",
+    "typescript": "^7.0.2"
+  }
+}
