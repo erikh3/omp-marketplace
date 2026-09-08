@@ -17,7 +17,8 @@ const LINE_HEIGHT = 24;
 const PADDING = 18;
 
 const NOTE_AGES_MINUTES: Record<string, number> = {
-  "Daily/2026-09-08.md": 1,
+  "Daily/2026-09-07.md": 1,
+  "Daily/2026-09-04.md": 5760,
   "Architecture.md": 3,
   "Project plan.md": 18,
   "Meeting notes.md": 47,
