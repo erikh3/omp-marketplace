@@ -129,20 +129,6 @@ lowercase type, an optional scope, a colon, and a non-empty subject.
 | `fix: Correct token expiry` | Invalid | Subject starts in sentence case |
 | `fix: correct token expiry.` | Invalid | Subject ends with a full stop |
 
-Examples as complete commands:
-
-```bash
-# accepted
-git commit -m "feat: add user login"
-git commit -m "fix(auth): correct token expiry"
-git commit -m "feat!: remove legacy login"
-
-# blocked by commitlint
-git commit -m "add user login"
-git commit -m "feature: add user login"
-git commit -m "fix:"
-```
-
 Repository commitlint configuration can change these results. For example, a
 repository may allow extra types, require a ticket-shaped scope, or use different
 subject rules.
