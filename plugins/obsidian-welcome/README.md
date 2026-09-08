@@ -21,7 +21,14 @@ Files under `Private/` never appear in recent edits. The widget disappears on fi
 omp plugin install obsidian-welcome@erikh3-omp-marketplace
 ```
 
-Restart omp after installation. No project-local extension or configuration is needed.
+Restart omp after installation. The plugin needs no project-local extension.
+
+Disable omp's built-in welcome screen in the vault's `.omp/config.yml` to show only the Obsidian widget:
+
+```yaml
+startup:
+  quiet: true
+```
 
 ## Development
 
