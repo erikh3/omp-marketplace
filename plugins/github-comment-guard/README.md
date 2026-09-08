@@ -6,21 +6,15 @@ The guard runs before a tool call. New top-level comments are not blocked.
 
 ## Supported calls
 
-The plugin inspects these GitHub MCP tools:
+The plugin inspects `add_reply_to_pull_request_comment`. Tool names registered with either hyphens or underscores are recognized.
 
-- `add_reply_to_pull_request_comment`
-- `add_issue_comment` when the input identifies a parent comment
-- `add_comment_to_pending_review` when the input identifies a parent comment
-
-It also inspects Bash calls that match either of these forms:
+It also inspects Bash calls that post a pull request review comment reply through the GitHub API:
 
 ```sh
-gh pr comment <number> --reply-to <comment-id>
-gh issue comment <number> --reply-to <comment-id>
-gh api /repos/<owner>/<repo>/issues/comments/<comment-id>
+gh api --method POST /repos/<owner>/<repo>/pulls/<pull-number>/comments/<comment-id>/replies -f body=<text>
 ```
 
-Tool names registered with either hyphens or underscores are recognized.
+Read-only `gh api` calls and new top-level comments are not blocked.
 
 ## Author lookup
 
@@ -41,15 +35,23 @@ The guard is enabled by default. Its state is stored at:
 ~/.omp/agent/github-comment-guard.json
 ```
 
-Use the command below to change it:
+Use the command to inspect or change it:
 
 ```text
+/github-comment-gate
 /github-comment-gate on
 /github-comment-gate off
-/github-comment-gate
 ```
 
-Calling `/github-comment-gate` without an argument toggles the current state.
+Calling `/github-comment-gate` without an argument reports the current state.
+
+Set `persistGateState` in the plugin settings to control whether changes survive a restart. It defaults to `true`.
+
+```sh
+omp plugin config github-comment-guard set persistGateState false
+```
+
+When disabled, every new session starts with the gate on. The slash command only changes the current session.
 
 ## Installation
 

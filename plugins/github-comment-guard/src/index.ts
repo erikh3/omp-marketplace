@@ -3,8 +3,8 @@
  * GitHub comments. Only bot-authored comments (GitHub user type "Bot" or login
  * ending in "[bot]") are replyable by the agent.
  *
- * Gate is on by default. `/github-comment-gate [on|off]` toggles it.
- * State persists to ~/.omp/agent/github-comment-guard.json across sessions.
+ * Gate is on by default. `/github-comment-gate [on|off]` shows or changes it.
+ * State persistence is configurable through the plugin's `persistGateState` setting.
  */
 
 import type {
@@ -13,6 +13,7 @@ import type {
   ToolCallEvent,
 } from "@oh-my-pi/pi-coding-agent";
 import { getAgentDir } from "@oh-my-pi/pi-coding-agent";
+import { getPluginSettings } from "@oh-my-pi/pi-coding-agent/extensibility/plugins";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -51,7 +52,7 @@ function saveState(state: GateState): void {
 
 // ─── GitHub API helpers ───────────────────────────────────────────────────────
 
-/** Resolves the author login of a GitHub issue/PR comment by its ID. */
+/** Resolves the author login of a GitHub pull request review comment by its ID. */
 async function getCommentAuthor(
   pi: ExtensionAPI,
   repo: string,
@@ -59,11 +60,8 @@ async function getCommentAuthor(
   host: string,
 ): Promise<string | null> {
   try {
-    const apiPath = `/repos/${repo}/issues/comments/${commentId}`;
-    const ghCmd =
-      host !== "github.com"
-        ? `GH_HOST=${host} gh api '${apiPath}'`
-        : `GH_HOST=github.com gh api '${apiPath}'`;
+    const apiPath = `/repos/${repo}/pulls/comments/${commentId}`;
+    const ghCmd = `GH_HOST=${host} gh api '${apiPath}'`;
 
     const result = await pi.exec("bash", ["-c", ghCmd]);
     if (result.code !== 0) return null;
@@ -85,7 +83,7 @@ async function getCommentAuthor(
 /**
  * Returns true when the login belongs to a bot account.
  * Uses the GitHub user API; falls back to the [bot] suffix convention.
- * Never blocks on lookup failure — returns false (allow) on any error.
+ * Never blocks on lookup failure. Returns false on any error.
  */
 async function isBotLogin(
   pi: ExtensionAPI,
@@ -94,10 +92,7 @@ async function isBotLogin(
 ): Promise<boolean> {
   if (login.endsWith("[bot]")) return true;
   try {
-    const ghCmd =
-      host !== "github.com"
-        ? `GH_HOST=${host} gh api '/users/${encodeURIComponent(login)}'`
-        : `GH_HOST=github.com gh api '/users/${encodeURIComponent(login)}'`;
+    const ghCmd = `GH_HOST=${host} gh api '/users/${encodeURIComponent(login)}'`;
 
     const result = await pi.exec("bash", ["-c", ghCmd]);
     if (result.code !== 0) return false;
@@ -116,26 +111,7 @@ async function isBotLogin(
 
 // ─── Tool identification ──────────────────────────────────────────────────────
 
-/**
- * MCP tool names that post comments. Both hyphen-separated and
- * underscore-separated variants appear depending on the server registration.
- */
-const COMMENT_MCP_TOOLS: Record<string, true> = {
-  "mcp__tools-github-mcp__add_issue_comment": true,
-  "mcp__tools-github-mcp__add_reply_to_pull_request_comment": true,
-  "mcp__tools-github-mcp__add_comment_to_pending_review": true,
-  "mcp__tools_github_mcp__add_issue_comment": true,
-  "mcp__tools_github_mcp__add_reply_to_pull_request_comment": true,
-  "mcp__tools_github_mcp__add_comment_to_pending_review": true,
-};
-
-/**
- * Extract reply context from a MCP GitHub comment tool call input.
- * Returns null when the call is not a reply (new top-level comment).
- *
- * add_issue_comment: { owner, repo, issue_number, body, in_reply_to_id? }
- * add_reply_to_pull_request_comment: { owner, repo, pull_number, comment_id, body }
- */
+/** Extracts reply context from the GitHub MCP reply tool's current schema. */
 function extractMcpReply(
   input: Record<string, unknown>,
 ): { repo: string; commentId: number | string; host: string } | null {
@@ -143,58 +119,42 @@ function extractMcpReply(
   const repo = typeof input["repo"] === "string" ? input["repo"] : null;
   if (!owner || !repo) return null;
 
-  const commentId =
-    input["comment_id"] ?? input["in_reply_to_id"] ?? input["in_reply_to"];
+  const commentId = input["commentId"] ?? input["comment_id"];
   if (commentId === undefined || commentId === null) return null;
 
-  return { repo: `${owner}/${repo}`, commentId: commentId as number | string, host: "github.com" };
+  return {
+    repo: `${owner}/${repo}`,
+    commentId: commentId as number | string,
+    host: "github.tools.sap",
+  };
 }
 
 /**
- * Parse a bash command for GitHub comment-reply patterns.
- * Returns null when the command is not a reply attempt.
- *
- * Handled patterns:
- *   gh pr comment <number> --reply-to <id> ...
- *   gh issue comment <number> --reply-to <id> ...
- *   gh api /repos/<owner>/<repo>/issues/comments/<id>  (POST/PATCH)
- *   GH_HOST=<host> gh ...
+ * Parses a Bash command that posts a pull request review comment reply through
+ * the GitHub API. Read-only API calls are ignored.
  */
 function parseBashCommentReply(command: string): {
   repo: string | null;
   commentId: number | string | null;
   host: string;
 } | null {
-  const hasGhComment = /\bgh\s+(pr|issue)\s+comment\b/.test(command);
-  const hasGhApiComment = /\bgh\s+api\b.*\/issues\/comments\/\d+/.test(command);
-  if (!hasGhComment && !hasGhApiComment) return null;
+  if (!/\bgh\s+api\b/.test(command)) return null;
+
+  const apiMatch = command.match(
+    /\/repos\/([^/\s"']+\/[^/\s"']+)\/pulls\/\d+\/comments\/(\d+)\/replies\b/,
+  );
+  if (!apiMatch) return null;
+
+  const explicitlyPosts = /(?:--method|-X)\s+["']?POST\b/i.test(command);
+  const implicitlyPosts = /(?:^|\s)(?:-f|-F|--field|--raw-field)(?:\s|=)/.test(command);
+  if (!explicitlyPosts && !implicitlyPosts) return null;
 
   const hostMatch = command.match(/GH_HOST=["']?([^\s"']+)["']?/);
-  const host = hostMatch ? hostMatch[1]! : "github.com";
-
-  // --reply-to <id> flag
-  const replyToMatch = command.match(/--reply-to\s+(\d+)/);
-  if (replyToMatch) {
-    const repoMatch = command.match(/(?:-R|--repo)\s+["']?([^\s"']+\/[^\s"']+)["']?/);
-    return {
-      repo: repoMatch ? repoMatch[1]! : null,
-      commentId: parseInt(replyToMatch[1]!, 10),
-      host,
-    };
-  }
-
-  // gh api .../issues/comments/<id>
-  const apiMatch = command.match(/\/repos\/([^/]+\/[^/]+)\/issues\/comments\/(\d+)/);
-  if (apiMatch) {
-    return {
-      repo: apiMatch[1]!,
-      commentId: parseInt(apiMatch[2]!, 10),
-      host,
-    };
-  }
-
-  // gh pr/issue comment without --reply-to is a new top-level comment; allow.
-  return null;
+  return {
+    repo: apiMatch[1]!,
+    commentId: parseInt(apiMatch[2]!, 10),
+    host: hostMatch ? hostMatch[1]! : "github.com",
+  };
 }
 
 // ─── Core gate logic ──────────────────────────────────────────────────────────
@@ -206,15 +166,15 @@ async function checkAndBlock(
   host: string,
 ): Promise<{ block: true; reason: string } | undefined> {
   if (repo === null) {
-    pi.logger.info("comment-guard: blocked — could not determine repository");
+    pi.logger.info("github-comment-guard: blocked, could not determine repository");
     return {
       block: true,
       reason:
-        "comment-guard: could not determine the repository to verify the comment author. Use /comment-gate off to disable the gate.",
+        "github-comment-guard: could not determine the repository to verify the comment author. Use /github-comment-gate off to disable the gate.",
     };
   }
   if (commentId === null) {
-    pi.logger.info("comment-guard: blocked — could not parse comment ID");
+    pi.logger.info("github-comment-guard: blocked, could not parse comment ID");
     return {
       block: true,
       reason:
@@ -232,7 +192,7 @@ async function checkAndBlock(
 
   const isBot = await isBotLogin(pi, authorLogin, host);
   if (isBot) {
-    pi.logger.debug(`github-comment-guard: allowed — @${authorLogin} is a bot`);
+    pi.logger.debug(`github-comment-guard: allowed, @${authorLogin} is a bot`);
     return undefined;
   }
 
@@ -247,14 +207,24 @@ async function checkAndBlock(
 
 // ─── Plugin entry point ───────────────────────────────────────────────────────
 
-export default function commentGuard(pi: ExtensionAPI): void {
-  const state = loadState();
+export default async function commentGuard(
+  pi: ExtensionAPI,
+  options?: {
+    state?: GateState;
+    persistGateState?: boolean;
+    saveGateState?: (state: GateState) => void;
+  },
+): Promise<void> {
+  const persistGateState = options?.persistGateState
+    ?? (await getPluginSettings("github-comment-guard", process.cwd()))["persistGateState"] !== false;
+  const state = options?.state ?? (persistGateState ? loadState() : { gateEnabled: true });
+  const persist = options?.saveGateState ?? saveState;
   pi.logger.info(`github-comment-guard: loaded, gate=${state.gateEnabled ? "on" : "off"}`);
 
   // ── /github-comment-gate command ─────────────────────────────────────────
 
   pi.registerCommand("github-comment-gate", {
-    description: "Toggle the bot-comment-only gate. Usage: /github-comment-gate [on|off]",
+    description: "Show or set the bot-comment-only gate. Usage: /github-comment-gate [on|off]",
     handler: async (args: string, ctx: ExtensionCommandContext): Promise<void> => {
       const arg = args.trim().toLowerCase();
 
@@ -262,9 +232,7 @@ export default function commentGuard(pi: ExtensionAPI): void {
         state.gateEnabled = true;
       } else if (arg === "off") {
         state.gateEnabled = false;
-      } else if (arg === "" || arg === "toggle") {
-        state.gateEnabled = !state.gateEnabled;
-      } else {
+      } else if (arg !== "") {
         ctx.ui.notify(
           `github-comment-guard: unknown argument "${args}". Use: /github-comment-gate [on|off]`,
           "error",
@@ -272,14 +240,16 @@ export default function commentGuard(pi: ExtensionAPI): void {
         return;
       }
 
-      saveState(state);
+      if (arg !== "" && persistGateState) {
+        persist(state);
+        pi.logger.info(`github-comment-guard: gate set to ${state.gateEnabled}`);
+      }
       ctx.ui.notify(
         state.gateEnabled
-          ? "github-comment-guard: Gate ON — agent can only reply to bot comments"
-          : "github-comment-guard: Gate OFF — agent can reply to any comment",
+          ? "github-comment-guard: 🔒 Gate ON. Agent can only reply to bot comments"
+          : "github-comment-guard: Gate OFF. Agent can reply to any comment",
         "info",
       );
-      pi.logger.info(`github-comment-guard: gate set to ${state.gateEnabled}`);
     },
   });
 
@@ -288,7 +258,7 @@ export default function commentGuard(pi: ExtensionAPI): void {
   pi.on("tool_call", async (event: ToolCallEvent) => {
     if (!state.gateEnabled) return;
 
-    if (COMMENT_MCP_TOOLS[event.toolName]) {
+    if (event.toolName.endsWith("add_reply_to_pull_request_comment")) {
       const replyInfo = extractMcpReply(event.input as Record<string, unknown>);
       // No reply context = new top-level comment; allow it.
       if (!replyInfo) return;
