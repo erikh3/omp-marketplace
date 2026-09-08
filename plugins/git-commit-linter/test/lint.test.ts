@@ -79,6 +79,21 @@ describe("lintCommit — conventional commits", () => {
 		expect(result.errors).toHaveLength(0);
 	});
 
+	it("accepts an uppercase SIGPEX ticket as the scope", async () => {
+		const commitlint = await load(
+			{ extends: ["@commitlint/config-conventional"] },
+			{ cwd: PLUGIN_DIR },
+		);
+		const config: EffectiveLintConfig = { commitlint, gitCommitLinter: {} };
+		const invocation = makeInvocation(tmpBase);
+		const message = "fix(SIGPEX-1234): fix Jira issue 1234";
+
+		const result = await lintCommit(message, invocation, tmpBase, config);
+
+		expect(result.valid).toBe(true);
+		expect(result.errors).toHaveLength(0);
+	});
+
 	it("missing type returns valid:false with errors", async () => {
 		const commitlint = await load(
 			{ extends: ["@commitlint/config-conventional"] },

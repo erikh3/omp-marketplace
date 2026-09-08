@@ -120,6 +120,7 @@ lowercase type, an optional scope, a colon, and a non-empty subject.
 |---|---|---|
 | `feat: add user login` | Valid | Recognized type and non-empty subject |
 | `fix(auth): correct token expiry` | Valid | Optional lowercase scope |
+| `fix(SIGPEX-1234): fix Jira issue 1234` | Valid | Uppercase Jira ticket scope is accepted |
 | `chore!: drop Node 16 support` | Valid | Breaking-change marker after the type |
 | `feat(api)!: remove legacy endpoint` | Valid | Scope and breaking-change marker |
 | `add user login` | Invalid | Missing type and colon |
