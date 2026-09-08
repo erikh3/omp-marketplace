@@ -2,6 +2,8 @@
 
 Animated Obsidian-aware startup widget for omp.
 
+![Animated omp Obsidian welcome screen](assets/welcome.gif)
+
 The plugin activates only when the omp working directory is inside an Obsidian vault. It asks the Obsidian CLI for the active vault first and verifies that the working directory belongs to it. If the CLI is unavailable, fails, or points at another vault, it finds the nearest ancestor containing `.obsidian`. Sessions started in vault subdirectories work without project configuration.
 
 The widget shows:
@@ -37,3 +39,11 @@ bun install
 bun run typecheck
 omp plugin link ./plugins/obsidian-welcome
 ```
+
+Regenerate the README animation from the fake vault in `demo-vault/`. The script requires ImageMagick (`brew install imagemagick`).
+
+```text
+bun run demo
+```
+
+The generator renders the real welcome component into deterministic SVG frames and uses ImageMagick to create `assets/welcome.gif`. It does not record the desktop or require manual capture.

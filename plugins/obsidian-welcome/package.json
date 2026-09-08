@@ -9,6 +9,7 @@
     ]
   },
   "scripts": {
+    "demo": "bun scripts/generate-demo.ts",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {

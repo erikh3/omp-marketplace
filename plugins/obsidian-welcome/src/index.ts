@@ -116,8 +116,8 @@ async function findVault(startDirectory: string): Promise<Vault | undefined> {
   return await findVaultWithCli(startDirectory) ?? findVaultFromDirectory(startDirectory);
 }
 
-function formatTimeAgo(modifiedAt: number): string {
-  const seconds = Math.max(0, Math.floor((Date.now() - modifiedAt) / 1000));
+function formatTimeAgo(modifiedAt: number, now = Date.now()): string {
+  const seconds = Math.max(0, Math.floor((now - modifiedAt) / 1000));
   if (seconds < 60) return "just now";
   const minutes = Math.floor(seconds / 60);
   if (minutes < 60) return `${minutes}m ago`;
@@ -228,10 +228,9 @@ function introLogoFrame(progress: number): string[] {
   return gradientLogo(phase, { strength: (1 - eased) ** 1.5, pos: shinePos });
 }
 
-function dailyStatus(vaultPath: string): DailyDay[] {
+function dailyStatus(vaultPath: string, now = new Date()): DailyDay[] {
   const days: DailyDay[] = [];
   const weekdays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-  const now = new Date();
 
   for (let offset = 6; offset >= 0; offset--) {
     const day = new Date(now);
@@ -248,7 +247,7 @@ function dailyStatus(vaultPath: string): DailyDay[] {
   return days;
 }
 
-async function recentEdits(vaultPath: string, limit = 5): Promise<RecentEdit[]> {
+async function recentEdits(vaultPath: string, limit = 5, now = Date.now()): Promise<RecentEdit[]> {
   const edits: Array<RecentEdit & { modifiedAt: number }> = [];
 
   async function scan(directory: string): Promise<void> {
@@ -272,7 +271,7 @@ async function recentEdits(vaultPath: string, limit = 5): Promise<RecentEdit[]> 
       try {
         const modified = await stat(absolutePath);
         edits.push({
-          editedAgo: formatTimeAgo(modified.mtimeMs),
+          editedAgo: formatTimeAgo(modified.mtimeMs, now),
           modifiedAt: modified.mtimeMs,
           name: basename(entry.name, ".md"),
           relativePath: relative(vaultPath, absolutePath).slice(0, -3),
@@ -290,11 +289,10 @@ async function recentEdits(vaultPath: string, limit = 5): Promise<RecentEdit[]> 
     .map(({ editedAgo, name, relativePath }) => ({ editedAgo, name, relativePath }));
 }
 
-async function vaultInfo(vaultPath: string): Promise<VaultInfo> {
-  const now = new Date();
+async function vaultInfo(vaultPath: string, now = new Date()): Promise<VaultInfo> {
   return {
-    dailyStatus: dailyStatus(vaultPath),
-    recentEdits: await recentEdits(vaultPath),
+    dailyStatus: dailyStatus(vaultPath, now),
+    recentEdits: await recentEdits(vaultPath, 5, now.getTime()),
     today: `${String(now.getDate()).padStart(2, "0")}-${String(now.getMonth() + 1).padStart(2, "0")}-${now.getFullYear()}`,
   };
 }
@@ -363,6 +361,7 @@ function rightColumn(vault: VaultInfo, detectedVault: Vault, width: number): str
 class ObsidianWelcome implements Component {
   #animationStart: number | null = null;
   #animationTimer: Timer | null = null;
+  #previewProgress: number | null = null;
 
   constructor(
     private readonly model: string,
@@ -391,13 +390,19 @@ class ObsidianWelcome implements Component {
     this.#animationStart = null;
   }
 
+  setAnimationProgress(progress: number): void {
+    this.#previewProgress = Math.min(Math.max(progress, 0), 1);
+  }
+
   render(terminalWidth: number): readonly string[] {
     if (terminalWidth < 44) return [];
     const boxWidth = Math.max(76, terminalWidth - 2);
     const leftWidth = 26;
     const rightWidth = boxWidth - leftWidth - 3;
     const elapsed = this.#animationStart === null ? INTRO_MS : performance.now() - this.#animationStart;
-    const logo = elapsed < INTRO_MS ? introLogoFrame(elapsed / INTRO_MS) : gradientLogo();
+    const logo = this.#previewProgress === null
+      ? elapsed < INTRO_MS ? introLogoFrame(elapsed / INTRO_MS) : gradientLogo()
+      : this.#previewProgress < 1 ? introLogoFrame(this.#previewProgress) : gradientLogo();
     const left = leftColumn(this.model, this.provider, leftWidth, logo);
     const right = rightColumn(this.vault, this.detectedVault, rightWidth);
     const border = dim("│");
@@ -441,4 +446,19 @@ export default function obsidianWelcome(pi: ExtensionAPI): void {
   pi.on("input", async (_event, ctx) => {
     ctx.ui.setWidget("obsidian-welcome", undefined);
   });
+}
+
+/** Render one deterministic welcome frame for generated documentation. */
+export async function renderWelcomePreview(
+  startDirectory: string,
+  terminalWidth: number,
+  progress: number,
+  now: Date,
+): Promise<readonly string[]> {
+  const detectedVault = findVaultFromDirectory(startDirectory);
+  if (!detectedVault) throw new Error(`${startDirectory} is not inside an Obsidian vault`);
+  const info = await vaultInfo(detectedVault.path, now);
+  const welcome = new ObsidianWelcome("Claude 4.6 Sonnet", "sap-aicore", detectedVault, info);
+  welcome.setAnimationProgress(progress);
+  return welcome.render(terminalWidth);
 }
