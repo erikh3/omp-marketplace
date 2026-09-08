@@ -1,0 +1,27 @@
+{
+  "name": "github-comment-guard",
+  "version": "0.1.0",
+  "description": "Blocks the AI agent from posting reply comments on human-authored GitHub comments. Gate is on by default; inspect or change it with /github-comment-gate.",
+  "private": true,
+  "omp": {
+    "extensions": [
+      "./src/index.ts"
+    ],
+    "settings": {
+      "persistGateState": {
+        "type": "boolean",
+        "default": true,
+        "description": "Remember gate state across OMP sessions"
+      }
+    }
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "bun test"
+  },
+  "devDependencies": {
+    "@oh-my-pi/pi-coding-agent": "^17.0.0",
+    "bun-types": "^1.3.14",
+    "typescript": "^7.0.2"
+  }
+}
