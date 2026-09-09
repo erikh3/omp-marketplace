@@ -18,8 +18,8 @@ Restart omp after linking.
 
 ## Design rationale — omp's levers for the Bash PATH
 
-Investigation of omp v17 (`dist/cli.js`) established which levers can put a
-directory on the Bash tool's `PATH`.
+Investigation of omp v17 and verification against omp v18 established which
+levers can put a directory on the Bash tool's `PATH`.
 
 ### What omp does NOT provide
 
