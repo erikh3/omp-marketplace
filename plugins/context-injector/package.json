@@ -1,7 +1,7 @@
 {
   "name": "context-injector",
   "version": "0.1.0",
-  "description": "Inject skills and arbitrary file contents into the LLM context at agent-start time. Configurable via context-injector.yml \u2014 supports skill:// URIs, globs, per-entry once/display flags, and both user and project scopes.",
+  "description": "Inject skills and arbitrary file contents into the LLM context at agent-start time. Configurable via context-injector.yml. Supports skill:// URIs, globs, per-entry once/display flags, and both user and project scopes.",
   "private": true,
   "omp": {
     "extensions": [
