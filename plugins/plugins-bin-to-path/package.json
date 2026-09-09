@@ -1,6 +1,6 @@
 {
   "name": "plugins-bin-to-path",
-  "version": "0.0.2",
+  "version": "1.0.0",
   "description": "Puts each enabled Claude Code plugin's bin/ directory on the Bash tool PATH, so bundled executables run by bare name under omp.",
   "private": true,
   "omp": {
