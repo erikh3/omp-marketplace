@@ -45,9 +45,9 @@
         "source": "github",
         "repo": "erikh3/omp-permission-guard",
         "ref": "main",
-        "sha": "3f17e9e38d52ab2c2905f9016763186ad0bd0ac5"
+        "sha": "ef57dd71e34486f422b6e580667ab9d0d8e25327"
       },
-      "version": "0.3.0",
+      "version": "0.4.0",
       "author": {
         "name": "Hank Warren"
       },
@@ -85,7 +85,7 @@
     },
     {
       "name": "github-comment-guard",
-      "description": "Blocks the AI agent from replying to human-authored GitHub comments via MCP tools or gh CLI. Only bot-authored comments (GitHub type 'Bot' or [bot] login) are replyable. Gate is on by default; toggle with /github-comment-gate [on|off].",
+      "description": "Blocks the AI agent from replying to human-authored GitHub review comments via MCP tools or gh CLI. Bot-authored replies and new top-level comments remain allowed. Gate is on by default; inspect or change it with /github-comment-gate [on|off].",
       "source": "./github-comment-guard",
       "category": "security",
       "homepage": "https://github.com/erikh3/omp-marketplace/tree/main/plugins/github-comment-guard"
