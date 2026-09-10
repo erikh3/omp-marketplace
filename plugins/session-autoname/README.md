@@ -1,3 +1,9 @@
+> **Superseded.** omp v18.1.16 added native support for bare `/rename` (no
+> argument), which auto-generates a session title from the transcript. The
+> `/rename` interception in this plugin is disabled and the plugin is no longer
+> listed in the marketplace catalog. The `/name` command and the title-generation
+> logic remain functional for use as a linked plugin.
+
 # session-autoname
 
 Name the current session from its own logs with one keystroke, using the same
@@ -9,11 +15,10 @@ smol model omp already uses for automatic titling.
 |-------|--------|
 | `/name` | Generate a name from the session logs via the smol model |
 | `/name <title>` | Set the name to `<title>` verbatim (trimmed) |
-| `/rename` | Generate a name from the session logs via the smol model |
-| `/rename <title>` | Unchanged — handled by omp's built-in `/rename` |
 
-The distinction is only the presence of an argument: **no argument → generate;
-argument → set directly.**
+The `/name` command is the primary entry point. `/rename` without an argument
+is handled natively by omp since v18.1.16 and its interception in this plugin
+has been disabled.
 
 ## Why
 
@@ -28,17 +33,11 @@ final title; their useful component names remain as plain search terms.
 
 ## How it works
 
-Three mechanisms, each dictated by an omp constraint:
+Two mechanisms, each dictated by an omp constraint:
 
 - **`/name` is registered as a command** (`pi.registerCommand`). It is not a
   built-in, so it is free to register, shows up in autocomplete/help, and works
   in interactive, ACP, and RPC modes.
-- **`/rename` is a reserved built-in** and cannot be re-registered — omp skips
-  extension commands that collide with built-in names. Its no-argument form is
-  therefore intercepted on the **`input` event**, which fires *before*
-  slash-command dispatch; returning `{ handled: true }` preempts the built-in's
-  usage error. Only a bare `/rename` (optionally surrounded by whitespace) is
-  intercepted. `/rename <title>` and everything else fall straight through.
 - **Name generation reflects the active branch.** The path from the current
   session leaf to its root is read from `sessionManager.getBranch()` and rendered
   as `User:`/`Assistant:` turns. Abandoned sibling branches are excluded. For
@@ -60,7 +59,7 @@ records source `user`, so a later automatic title will not overwrite it.
 - **Model declines** (returns null/empty) or **errors**: the session is left
   unnamed and a notice is shown; the transient status line is always cleared.
 - **`/Rename` / `/renamed`**: not intercepted. Slash commands are lowercase and
-  the match is exact, so only a real bare `/rename` triggers generation.
+  exact match only.
 
 ## Configuration
 
@@ -79,10 +78,13 @@ omp plugin link ./plugins/session-autoname
 
 Restart the session after linking — extension modules load at startup.
 
-Marketplace install (snapshot; re-run `upgrade` to pick up edits):
+No marketplace listing (removed as of omp v18.1.16 making `/rename` native).
+To use as a linked plugin:
 
 ```
-/marketplace install session-autoname@erikh3-omp-marketplace
+bun i
+bun run typecheck
+omp plugin link ./plugins/session-autoname
 ```
 
 ## Development
