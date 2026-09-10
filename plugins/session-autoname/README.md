@@ -19,10 +19,12 @@ argument → set directly.**
 
 omp derives a session's automatic title from the *first* user message. Long
 sessions drift off that first topic, and the built-in `/rename` requires you to
-type a title yourself. This plugin re-derives a short name from the *current*
-transcript on demand, so a session that started as "help me read a log" and
-became "rewrite the retry backoff" can be renamed to match without you inventing
-a title.
+type a title yourself. This plugin re-derives a specific, searchable name from
+the current active branch. Names preserve concrete identifiers such as plugin,
+service, repository, ticket, environment, error, and version names instead of
+collapsing the session into labels like "Version Upgrade" or "Investigation".
+URLs, hostnames, links, and filesystem or repository paths are removed from the
+final title; their useful component names remain as plain search terms.
 
 ## How it works
 
@@ -37,15 +39,15 @@ Three mechanisms, each dictated by an omp constraint:
   slash-command dispatch; returning `{ handled: true }` preempts the built-in's
   usage error. Only a bare `/rename` (optionally surrounded by whitespace) is
   intercepted. `/rename <title>` and everything else fall straight through.
-- **Name generation reflects the whole transcript.** The full conversation is
-  read from `sessionManager.getEntries()` and rendered as `User:`/`Assistant:`
-  turns. When that transcript is long enough to otherwise be truncated by the
-  title model, it is first condensed by the current session model (via
-  `completeSimple`) into a few sentences — a summarize-then-title pass so the
-  name captures the entire session, not just its last few turns. The summary
-  (or the raw transcript for short sessions) is passed to `generateSessionTitle`,
-  which honors the `providers.tinyModel` setting: a local tiny worker or the
-  online `@smol` role. No online fallback is forced.
+- **Name generation reflects the active branch.** The path from the current
+  session leaf to its root is read from `sessionManager.getBranch()` and rendered
+  as `User:`/`Assistant:` turns. Abandoned sibling branches are excluded. For
+  long transcripts, the current session model generates the final title directly
+  from up to 24,000 characters under a prompt that requires the concrete subject,
+  action, outcome, and distinguishing identifiers. This avoids losing exact names
+  in a summarize-then-title handoff. Short transcripts and long-session failures
+  fall back to `generateSessionTitle`, with the same searchable-title rules. That
+  fallback honors `providers.tinyModel` and never forces an online model.
 
 The generated (or supplied) name is stored via `pi.setSessionName`, which
 records source `user`, so a later automatic title will not overwrite it.
