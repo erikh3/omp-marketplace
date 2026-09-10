@@ -6,7 +6,9 @@ import * as realPiAi from "@oh-my-pi/pi-ai";
 // Controllable stub for the smol title model. Swapped per test via `titleImpl`.
 // Mocked before importing the extension so the module binds to this stub.
 let titleImpl: (firstMessage: string) => Promise<string | null> = async () => null;
-const generateSessionTitle = mock((firstMessage: string): Promise<string | null> => titleImpl(firstMessage));
+const generateSessionTitle = mock(
+	(firstMessage: string, ..._args: unknown[]): Promise<string | null> => titleImpl(firstMessage),
+);
 // Snapshot the real exports (captured before mock.module runs) and override
 // only generateSessionTitle, so siblings the import graph relies on (e.g.
 // setSessionTerminalTitle) stay intact.
@@ -95,7 +97,7 @@ interface StatusCall {
  * Build a captured harness around the extension. `entries` is the fake
  * transcript. Routing-only tests pass `[]` so the title model is never reached.
  */
-function makeHarness(entries: SessionEntry[], options: { model?: unknown } = {}) {
+function makeHarness(entries: SessionEntry[], options: { model?: unknown; branchEntries?: SessionEntry[] } = {}) {
 	const names: string[] = [];
 	const notices: Notice[] = [];
 	const statuses: StatusCall[] = [];
@@ -134,7 +136,7 @@ function makeHarness(entries: SessionEntry[], options: { model?: unknown } = {})
 		},
 		model: options.model,
 		sessionManager: {
-			getEntries: (): SessionEntry[] => entries,
+			getBranch: (): SessionEntry[] => options.branchEntries ?? entries,
 			getSessionId: (): string => "session-test",
 		},
 		ui: {
@@ -255,18 +257,18 @@ describe("auto naming from session logs", () => {
 	];
 
 	test("bare /rename generates and applies a name", async () => {
-		titleImpl = async () => "Deploy widget service";
+		titleImpl = async () => "Deploy widget service manifest changes";
 		const h = makeHarness(transcript());
 		await h.input("/rename");
 		expect(generateSessionTitle).toHaveBeenCalledTimes(1);
-		expect(h.names).toEqual(["Deploy widget service"]);
+		expect(h.names).toEqual(["Deploy widget service manifest changes"]);
 	});
 
 	test("/name with no argument generates and applies a name", async () => {
-		titleImpl = async () => "Deploy widget service";
+		titleImpl = async () => "Deploy widget service manifest changes";
 		const h = makeHarness(transcript());
 		await h.runName("");
-		expect(h.names).toEqual(["Deploy widget service"]);
+		expect(h.names).toEqual(["Deploy widget service manifest changes"]);
 	});
 
 	test("feeds a digest derived from the transcript to the model", async () => {
@@ -277,11 +279,45 @@ describe("auto naming from session logs", () => {
 		expect(firstArg).toContain("deploy the widget service");
 	});
 
-	test("applies the model's title without mutation", async () => {
-		titleImpl = async () => "  Weird  Title  ";
+	test("requires concrete searchable titles", async () => {
+		titleImpl = async () => "Upgrade session-autoname to omp 18.1.14";
+		const h = makeHarness([messageEntry("user", "upgrade session-autoname dependencies to omp 18.1.14")]);
+		await h.runName("");
+		const customPrompt = generateSessionTitle.mock.calls[0]?.[6];
+		expect(customPrompt).toContain("specific, searchable title");
+		expect(customPrompt).toContain("Upgrade session-autoname to omp 18.1.14");
+		expect(customPrompt).toContain("Version Upgrade");
+		expect(h.names).toEqual(["Upgrade session-autoname to omp 18.1.14"]);
+	});
+
+	test("grounds a generic tiny-model title with transcript identifiers", async () => {
+		titleImpl = async () => "Plugin Integration";
+		const h = makeHarness([messageEntry("user", "link unslop-pr and inspect sap-cls 1.4.1")]);
+		await h.runName("");
+		expect(h.names).toEqual(["Plugin Integration unslop-pr sap-cls"]);
+	});
+
+	test("removes URLs and opaque PR numbers while retaining the work description", async () => {
+		titleImpl = async () => "Fix MCP repository bypass github.com/erikh3/omp-marketplace/pull/1";
+		const h = makeHarness([
+			messageEntry("user", "smoke test the MCP repository bypass on github.com/erikh3/omp-marketplace/pull/1"),
+		]);
+		await h.runName("");
+		expect(h.names).toEqual(["Fix MCP repository bypass omp-marketplace"]);
+	});
+
+	test("removes file paths while preserving plain identifiers", async () => {
+		titleImpl = async () => "Fix subagent path @plugins/plugins-bin-to-path/ loading";
+		const h = makeHarness([messageEntry("user", "fix @plugins/plugins-bin-to-path/ for subagents")]);
+		await h.runName("");
+		expect(h.names).toEqual(["Fix subagent path loading plugins-bin-to-path"]);
+	});
+
+	test("normalizes surrounding whitespace from a valid title", async () => {
+		titleImpl = async () => "  Weird Yet Searchable Session Title  ";
 		const h = makeHarness(transcript());
 		await h.runName("");
-		expect(h.names).toEqual(["  Weird  Title  "]);
+		expect(h.names).toEqual(["Weird Yet Searchable Session Title"]);
 	});
 
 	test("shows a working status and clears it on success", async () => {
@@ -358,6 +394,17 @@ describe("whole-transcript coverage", () => {
 		expect(firstArg).toContain("next 11");
 	});
 
+	test("excludes messages outside the active branch", async () => {
+		titleImpl = async () => "Active branch";
+		const activeGoal = messageEntry("user", "fix the active checkout flow");
+		const abandonedGoal = messageEntry("user", "replace the abandoned billing flow");
+		const h = makeHarness([activeGoal, abandonedGoal], { branchEntries: [activeGoal] });
+		await h.runName("");
+		const firstArg = generateSessionTitle.mock.calls[0]?.[0] ?? "";
+		expect(firstArg).toContain("active checkout flow");
+		expect(firstArg).not.toContain("abandoned billing flow");
+	});
+
 	test("short transcript is titled directly, without a summary pass", async () => {
 		titleImpl = async () => "Flux work";
 		const h = makeHarness(manyTurns(), { model: { provider: "test", id: "big" } });
@@ -390,70 +437,60 @@ describe("whole-transcript coverage", () => {
 	});
 });
 
-describe("summary pass for long transcripts", () => {
-	// Long enough (~6 KB) to exceed the title model's own input bound, so the
-	// extension condenses it before titling.
+describe("direct title generation for long transcripts", () => {
 	const longTranscript = (): SessionEntry[] => {
 		const entries: SessionEntry[] = [
-			messageEntry("user", "kick off: migrate the billing pipeline to the new schema end to end"),
+			messageEntry("user", "upgrade session-autoname dependencies from omp 17.4.2 to 18.1.14"),
 		];
 		for (let i = 0; i < 40; i++) {
-			entries.push(messageEntry("assistant", `iteration ${i}: adjusted a mapping and reran the importer to validate rows`));
-			entries.push(messageEntry("user", `iteration ${i}: looks off, tweak the retry backoff and try once more please`));
+			entries.push(messageEntry("assistant", `iteration ${i}: updated compatibility and reran plugin checks`));
+			entries.push(messageEntry("user", `iteration ${i}: keep the session-autoname upgrade compatible with omp 18.1.14`));
 		}
 		return entries;
 	};
 
-	test("summarizes the whole transcript, then titles the summary", async () => {
+	test("uses the active model title directly", async () => {
 		completeImpl = async () => ({
 			stopReason: "stop",
-			content: [{ type: "text", text: "Migrate the billing pipeline to the new schema." }],
+			content: [{ type: "text", text: "Upgrade session-autoname from omp 17.4.2 to 18.1.14" }],
 		});
-		titleImpl = async firstMessage =>
-			firstMessage.includes("billing pipeline") ? "Billing pipeline migration" : "wrong";
 		const h = makeHarness(longTranscript(), { model: { provider: "test", id: "big" } });
 		await h.runName("");
 		expect(completeSimple).toHaveBeenCalledTimes(1);
-		// The summary model saw the opening goal, not just the latest turns.
-		expect(lastSummaryInput ?? "").toContain("migrate the billing pipeline");
-		// The title model was fed the summary, not the raw transcript.
-		expect(generateSessionTitle.mock.calls[0]?.[0]).toBe("Migrate the billing pipeline to the new schema.");
-		expect(h.names).toEqual(["Billing pipeline migration"]);
-		// The summary request is well-formed: a single system prompt and the
-		// bounded, greedy utility-call options.
+		expect(lastSummaryInput ?? "").toContain("session-autoname dependencies from omp 17.4.2 to 18.1.14");
+		expect(generateSessionTitle).not.toHaveBeenCalled();
+		expect(h.names).toEqual(["Upgrade session-autoname from omp 17.4.2 to 18.1.14"]);
 		const [, context, options] = completeSimple.mock.calls[0] ?? [];
 		expect(context?.systemPrompt).toHaveLength(1);
-		expect(typeof context?.systemPrompt?.[0]).toBe("string");
-		expect(options?.maxTokens).toBe(256);
+		expect(context?.systemPrompt?.[0]).toContain("specific, searchable title");
+		expect(options?.maxTokens).toBe(64);
 		expect(options?.disableReasoning).toBe(true);
 		expect(options?.temperature).toBe(0);
 	});
 
-	test("no active model: skips the summary and titles the transcript", async () => {
+	test("no active model titles the transcript with the tiny model", async () => {
 		titleImpl = async () => "Fallback title";
 		const h = makeHarness(longTranscript());
 		await h.runName("");
 		expect(completeSimple).not.toHaveBeenCalled();
-		expect(generateSessionTitle.mock.calls[0]?.[0] ?? "").toContain("migrate the billing pipeline");
+		expect(generateSessionTitle.mock.calls[0]?.[0] ?? "").toContain("session-autoname dependencies");
 	});
 
-	test("summary error falls back to titling the raw transcript", async () => {
+	test("active model error falls back to the tiny model", async () => {
 		completeImpl = async () => ({ stopReason: "error", content: [] });
-		titleImpl = async () => "Fallback title";
+		titleImpl = async () => "Fallback searchable coding session title";
 		const h = makeHarness(longTranscript(), { model: { provider: "test", id: "big" } });
 		await h.runName("");
 		expect(completeSimple).toHaveBeenCalledTimes(1);
-		expect(generateSessionTitle.mock.calls[0]?.[0] ?? "").toContain("migrate the billing pipeline");
-		expect(h.names).toEqual(["Fallback title"]);
+		expect(generateSessionTitle.mock.calls[0]?.[0] ?? "").toContain("session-autoname dependencies");
+		expect(h.names).toEqual(["Fallback searchable coding session title session-autoname"]);
 	});
 
-	test("empty summary text falls back to titling the raw transcript", async () => {
-		// beforeEach's default completeImpl returns stopReason "stop" with blank text.
-		titleImpl = async () => "Fallback title";
+	test("grounds a generic active-model title after retry", async () => {
+		completeImpl = async () => ({ stopReason: "stop", content: [{ type: "text", text: "Version Upgrade" }] });
+		titleImpl = async () => "Fallback searchable coding session title";
 		const h = makeHarness(longTranscript(), { model: { provider: "test", id: "big" } });
 		await h.runName("");
-		expect(completeSimple).toHaveBeenCalledTimes(1);
-		expect(generateSessionTitle.mock.calls[0]?.[0] ?? "").toContain("migrate the billing pipeline");
-		expect(h.names).toEqual(["Fallback title"]);
+		expect(h.names).toEqual(["Fallback searchable coding session title session-autoname"]);
 	});
 });

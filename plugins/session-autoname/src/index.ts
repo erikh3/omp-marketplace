@@ -7,6 +7,8 @@ import type {
 import { completeSimple } from "@oh-my-pi/pi-ai";
 import { generateSessionTitle } from "@oh-my-pi/pi-coding-agent/utils/title-generator";
 
+import searchableTitlePrompt from "./searchable-title.md" with { type: "text" };
+
 /** Status-bar slot key used while a name is being generated. */
 const STATUS_KEY = "session-autoname";
 
@@ -29,15 +31,85 @@ const MAX_TRANSCRIPT_CHARS = 24_000;
  */
 const SUMMARY_TRIGGER_CHARS = 2_000;
 
-/** Output ceiling for the summary pass — a few sentences, not a document. */
-const SUMMARY_MAX_TOKENS = 256;
+/** Output ceiling for direct long-session title generation. */
+const SESSION_TITLE_MAX_TOKENS = 64;
 
-/** System prompt for the whole-transcript summary that precedes titling. */
-const SUMMARY_SYSTEM_PROMPT =
-	"You summarize a coding-assistant session transcript. In 2-3 plain sentences, " +
-	"state the main task or goal the user pursued and what was actually done or " +
-	"decided across the WHOLE session, not only its latest messages. No preamble, " +
-	"no lists, no markdown. Output only the summary.";
+/** System prompt for producing a specific, searchable whole-session title. */
+const SESSION_TITLE_SYSTEM_PROMPT =
+	"Write one specific, searchable title for this coding-assistant session. Use 5-10 words and " +
+	"at most 80 characters. The title must include at least two exact distinguishing terms from the " +
+	"transcript, such as component, repository, plugin, command, service, library, ticket, product, " +
+	"version, environment, or error names. State the action or outcome. If the session covered several " +
+	"related steps, capture the story connecting them. Never include a URL, hostname, link, filesystem " +
+	"path, repository path, or opaque PR number. Describe the work in plain words using surrounding " +
+	"context, not a location stripped down to a repository and number. Name the repository, component, " +
+	"plugin, or behavior only when it helps explain the work. Never replace concrete details with generic " +
+	"phrases such as version upgrade, bug fix, code update, configuration change, plugin integration, " +
+	"or investigation. No preamble, quotes, punctuation, markdown, or title tags. Output only the title.";
+
+const MAX_TITLE_ATTEMPTS = 2;
+
+const GENERIC_TITLE = /^(?:version upgrade|bug fix|code update|configuration change|plugin integration|investigation)$/i;
+const TITLE_WORD = /[\p{L}\p{N}]+/gu;
+const MARKDOWN_LINK = /\[([^\]]+)\]\([^)]+\)/g;
+const LOCATION_TOKEN = /(?:https?:\/\/|www\.)\S+|\S*\/\S+|(?:[A-Za-z0-9-]+\.)+[A-Za-z]{2,}\S*/g;
+
+function withoutLocations(value: string): string {
+	return value
+		.replace(MARKDOWN_LINK, "$1")
+		.replace(LOCATION_TOKEN, " ")
+		.replace(/\s{2,}/g, " ")
+		.trim();
+}
+
+function searchableTitle(value: string | null): string | null {
+	const rawTitle = value?.split(/\r?\n/, 1)[0]?.trim().replace(/^<title>|<\/title>$/gi, "").replace(/^["']|["']$/g, "");
+	const title = rawTitle ? withoutLocations(rawTitle) : undefined;
+	const words = title?.match(TITLE_WORD)?.length ?? 0;
+	return title && title.length <= 80 && words >= 5 && words <= 12 && !GENERIC_TITLE.test(title) ? title : null;
+}
+
+function searchableIdentifiers(transcript: string): string[] {
+	const matches = transcript.match(/[A-Za-z0-9@][A-Za-z0-9@._/-]{1,79}/g) ?? [];
+	const identifiers: string[] = [];
+	const seen = new Set<string>();
+	for (const match of matches) {
+		const candidates = match.includes("/") ? match.split("/") : [match];
+		for (const candidate of candidates) {
+			const clean = candidate.replace(/^@/, "");
+			if (!clean || /^(?:https?|www|github\.com|pull|blob|tree)$/i.test(clean)) continue;
+			if (!clean.includes("-") && !/^\d+(?:\.\d+)+$/.test(clean)) continue;
+			const normalized = clean.toLowerCase();
+			if (seen.has(normalized)) continue;
+			seen.add(normalized);
+			identifiers.push(clean);
+			if (identifiers.length === 12) return identifiers;
+		}
+	}
+	return identifiers;
+}
+
+function containsIdentifier(title: string, identifiers: readonly string[]): boolean {
+	const normalizedTitle = title.toLowerCase();
+	return identifiers.length === 0 || identifiers.some(identifier => normalizedTitle.includes(identifier.toLowerCase()));
+}
+
+function groundedTitle(value: string | null, identifiers: readonly string[]): string | null {
+	const title = searchableTitle(value);
+	if (title && containsIdentifier(title, identifiers)) return title;
+	const rawBase = value?.split(/\r?\n/, 1)[0]?.trim().replace(/^<title>|<\/title>$/gi, "").replace(/^["']|["']$/g, "");
+	const base = rawBase ? withoutLocations(rawBase) : undefined;
+	if (!base || identifiers.length === 0) return null;
+	let candidate = base;
+	for (const identifier of identifiers) {
+		if (candidate.toLowerCase().includes(identifier.toLowerCase())) continue;
+		const expanded = `${candidate} ${identifier}`;
+		if (expanded.length > 80 || (expanded.match(TITLE_WORD)?.length ?? 0) > 12) break;
+		candidate = expanded;
+		if ((candidate.match(TITLE_WORD)?.length ?? 0) >= 5) return candidate;
+	}
+	return null;
+}
 
 /** Extract concatenated plain text from a message's content (string or blocks). */
 function textFromContent(content: unknown): string {
@@ -67,17 +139,17 @@ function boundTranscript(text: string, max: number): string {
 }
 
 /**
- * Render the full session transcript as `Role: text` turns, bounded to
+ * Render the current branch transcript as `Role: text` turns, bounded to
  * {@link MAX_TRANSCRIPT_CHARS}. Unlike omp's recent-turns title digest, this
- * spans the WHOLE conversation so the generated name reflects the entire
- * session rather than only its last few turns. Only user/assistant message
- * *text* is kept — tool calls, tool results, thinking, images, and
- * system/developer messages are excluded as title noise. Returns `null` when
- * there is no user/assistant text worth naming yet.
+ * spans the whole active branch so the generated name reflects the complete
+ * path to the current leaf without including abandoned branches. Only
+ * user/assistant message text is kept. Tool calls, tool results, thinking,
+ * images, and system/developer messages are excluded as title noise. Returns
+ * `null` when there is no user/assistant text worth naming yet.
  */
 function sessionTranscript(ctx: ExtensionContext): string | null {
 	const messages = ctx.sessionManager
-		.getEntries()
+		.getBranch()
 		.filter((entry): entry is SessionMessageEntry => entry.type === "message")
 		.map(entry => entry.message);
 	const turns: string[] = [];
@@ -91,37 +163,49 @@ function sessionTranscript(ctx: ExtensionContext): string | null {
 	return boundTranscript(turns.join("\n\n"), MAX_TRANSCRIPT_CHARS);
 }
 
-/**
- * Summarize the whole transcript with the current session model (which always
- * has working credentials) into a few sentences. Returns `null` when no model
- * is active or the request fails — the caller then titles the raw transcript.
- */
-async function summarizeTranscript(
+/** Generate a searchable title directly with the active session model. */
+async function generateLongSessionTitle(
 	pi: ExtensionAPI,
 	ctx: ExtensionContext,
 	transcript: string,
 ): Promise<string | null> {
 	const model = ctx.model;
 	if (!model) return null;
+	const identifiers = searchableIdentifiers(transcript);
 	try {
 		const sessionId = ctx.sessionManager.getSessionId?.();
-		const response = await completeSimple(
-			model,
-			{
-				systemPrompt: [SUMMARY_SYSTEM_PROMPT],
-				messages: [{ role: "user", content: transcript, timestamp: Date.now() }],
-			},
-			{
-				apiKey: ctx.modelRegistry.resolver(model, sessionId),
-				maxTokens: SUMMARY_MAX_TOKENS,
-				disableReasoning: true,
-				temperature: 0,
-			},
-		);
-		if (response.stopReason === "error") return null;
-		return textFromContent(response.content) || null;
+		let rejectedTitle: string | undefined;
+		for (let attempt = 0; attempt < MAX_TITLE_ATTEMPTS; attempt++) {
+			const correction = rejectedTitle
+				? `\n\nThe previous title was too vague or invalid: "${rejectedTitle}". Replace it with concrete names from the transcript.`
+				: "";
+			const identifierHint =
+				identifiers.length > 0
+					? `\n\nExact searchable terms found in the transcript: ${identifiers.join(", ")}. Use the relevant terms verbatim.`
+					: "";
+			const response = await completeSimple(
+				model,
+				{
+					systemPrompt: [`${SESSION_TITLE_SYSTEM_PROMPT}${identifierHint}${correction}`],
+					messages: [{ role: "user", content: transcript, timestamp: Date.now() }],
+				},
+				{
+					apiKey: ctx.modelRegistry.resolver(model, sessionId),
+					maxTokens: SESSION_TITLE_MAX_TOKENS,
+					disableReasoning: true,
+					temperature: 0,
+				},
+			);
+			if (response.stopReason === "error") return null;
+			const rawTitle = textFromContent(response.content);
+			const title = searchableTitle(rawTitle);
+			if (title && containsIdentifier(title, identifiers)) return title;
+			pi.logger.debug("session-autoname: rejected title candidate", { title: rawTitle, identifiers });
+			rejectedTitle = rawTitle;
+		}
+		return groundedTitle(rejectedTitle ?? null, identifiers);
 	} catch (error) {
-		pi.logger.warn("session-autoname: summary generation failed", {
+		pi.logger.warn("session-autoname: long-session title generation failed", {
 			error: error instanceof Error ? error.message : String(error),
 		});
 		return null;
@@ -138,10 +222,9 @@ async function summarizeTranscript(
 async function generateNameFromLogs(pi: ExtensionAPI, ctx: ExtensionContext): Promise<string | null> {
 	const transcript = sessionTranscript(ctx);
 	if (!transcript) return null;
-	let digest = transcript;
 	if (transcript.length > SUMMARY_TRIGGER_CHARS) {
-		const summary = await summarizeTranscript(pi, ctx, transcript);
-		if (summary) digest = summary;
+		const title = await generateLongSessionTitle(pi, ctx, transcript);
+		if (title) return title;
 	}
 	// Same engine as omp auto-titling: honors `providers.tinyModel` (local tiny
 	// worker or the online `@smol` role). No online fallback is forced here.
@@ -149,13 +232,16 @@ async function generateNameFromLogs(pi: ExtensionAPI, ctx: ExtensionContext): Pr
 	// module-isolation issue: if the plugin has its own node_modules, a direct
 	// import resolves to a separate module copy whose globalInstance is null,
 	// causing the settings proxy to throw "Settings not initialized."
-	return generateSessionTitle(
-		digest,
+	const generated = await generateSessionTitle(
+		transcript,
 		ctx.modelRegistry,
 		pi.pi.settings,
 		ctx.sessionManager.getSessionId?.(),
 		ctx.model,
+		undefined,
+		searchableTitlePrompt,
 	);
+	return groundedTitle(generated, searchableIdentifiers(transcript));
 }
 
 /**
