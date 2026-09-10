@@ -1,7 +1,7 @@
 {
   "name": "github-comment-guard",
   "version": "0.1.0",
-  "description": "Blocks the AI agent from posting reply comments on human-authored GitHub comments. Gate is on by default; inspect or change it with /github-comment-gate.",
+  "description": "Blocks pull request reviews and human-authored GitHub comment replies. Gate is on by default; inspect or change it with /github-comment-gate.",
   "private": true,
   "omp": {
     "extensions": [

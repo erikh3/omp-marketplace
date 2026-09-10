@@ -75,6 +75,52 @@ describe("github-comment-guard", () => {
 		expect(result).toBeUndefined();
 	});
 
+	test("blocks comments added to a pending review", async () => {
+		const { handler, exec } = makeApi({ login: "octocat", type: "User" });
+		const result = await handler(event(
+			"mcp__tools_github_mcp__add_comment_to_pending_review",
+			{ owner: "owner", repo: "repo", pullNumber: 7, path: "src/index.ts", body: "comment" },
+		));
+
+		expect(result).toEqual(expect.objectContaining({ block: true }));
+		expect(exec).not.toHaveBeenCalled();
+	});
+
+	test("blocks creating and submitting pull request reviews", async () => {
+		const { handler } = makeApi({ login: "octocat", type: "User" });
+
+		for (const method of ["create", "submit_pending"]) {
+			const result = await handler(event(
+				"mcp__tools_github_mcp__pull_request_review_write",
+				{ owner: "owner", repo: "repo", pullNumber: 7, method },
+			));
+			expect(result).toEqual(expect.objectContaining({ block: true }));
+		}
+	});
+
+	test("allows review cleanup operations", async () => {
+		const { handler } = makeApi({ login: "octocat", type: "User" });
+		const result = await handler(event(
+			"mcp__tools_github_mcp__pull_request_review_write",
+			{ owner: "owner", repo: "repo", pullNumber: 7, method: "delete_pending" },
+		));
+
+		expect(result).toBeUndefined();
+	});
+
+	test("allows pending review comments while the gate is off", async () => {
+		const { handler } = makeApi(
+			{ login: "octocat", type: "User" },
+			{ gateEnabled: false },
+		);
+		const result = await handler(event(
+			"mcp__tools_github_mcp__add_comment_to_pending_review",
+			{ owner: "owner", repo: "repo", pullNumber: 7, path: "src/index.ts", body: "comment" },
+		));
+
+		expect(result).toBeUndefined();
+	});
+
 	test("allows read-only gh api calls", async () => {
 		const { handler, exec } = makeApi({ login: "octocat", type: "User" });
 		const result = await handler(event("bash", {

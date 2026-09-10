@@ -1,12 +1,14 @@
 # github-comment-guard
 
-Blocks omp from replying to GitHub comments written by people. Replies to bot comments remain allowed.
+Blocks omp from creating or submitting pull request reviews and from replying to GitHub comments written by people. Replies to bot comments remain allowed.
 
-The guard runs before a tool call. New top-level comments are not blocked.
+The guard runs before a tool call. New top-level issue comments are not blocked.
 
 ## Supported calls
 
-The plugin inspects `add_reply_to_pull_request_comment`. Tool names registered with either hyphens or underscores are recognized.
+The plugin blocks `add_comment_to_pending_review` and the `create` and `submit_pending` methods of `pull_request_review_write`. Cleanup operations such as `delete_pending`, `resolve_thread`, and `unresolve_thread` remain allowed. Tool names registered with either hyphens or underscores are recognized.
+
+It also inspects `add_reply_to_pull_request_comment` and checks the original comment's author before allowing the reply.
 
 It also inspects Bash calls that post a pull request review comment reply through the GitHub API:
 
