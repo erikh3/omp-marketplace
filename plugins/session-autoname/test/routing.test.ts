@@ -297,13 +297,13 @@ describe("auto naming from session logs", () => {
 		expect(h.names).toEqual(["Plugin Integration unslop-pr sap-cls"]);
 	});
 
-	test("removes URLs and repository paths from generated titles", async () => {
-		titleImpl = async () => "Smoke Test MCP Repository github.com/erikh3/omp-marketplace/pull/1";
+	test("removes URLs and opaque PR numbers while retaining the work description", async () => {
+		titleImpl = async () => "Fix MCP repository bypass github.com/erikh3/omp-marketplace/pull/1";
 		const h = makeHarness([
 			messageEntry("user", "smoke test the MCP repository bypass on github.com/erikh3/omp-marketplace/pull/1"),
 		]);
 		await h.runName("");
-		expect(h.names).toEqual(["Smoke Test MCP Repository omp-marketplace"]);
+		expect(h.names).toEqual(["Fix MCP repository bypass omp-marketplace"]);
 	});
 
 	test("removes file paths while preserving plain identifiers", async () => {

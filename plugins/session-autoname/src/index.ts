@@ -41,10 +41,11 @@ const SESSION_TITLE_SYSTEM_PROMPT =
 	"transcript, such as component, repository, plugin, command, service, library, ticket, product, " +
 	"version, environment, or error names. State the action or outcome. If the session covered several " +
 	"related steps, capture the story connecting them. Never include a URL, hostname, link, filesystem " +
-	"path, or repository path. Name the repository, component, plugin, or PR in plain words instead. " +
-	"Never replace concrete details with generic phrases such as version upgrade, bug fix, code update, " +
-	"configuration change, plugin integration, or investigation. No preamble, quotes, punctuation, " +
-	"markdown, or title tags. Output only the title.";
+	"path, repository path, or opaque PR number. Describe the work in plain words using surrounding " +
+	"context, not a location stripped down to a repository and number. Name the repository, component, " +
+	"plugin, or behavior only when it helps explain the work. Never replace concrete details with generic " +
+	"phrases such as version upgrade, bug fix, code update, configuration change, plugin integration, " +
+	"or investigation. No preamble, quotes, punctuation, markdown, or title tags. Output only the title.";
 
 const MAX_TITLE_ATTEMPTS = 2;
 
