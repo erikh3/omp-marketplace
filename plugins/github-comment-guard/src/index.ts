@@ -1,7 +1,7 @@
 /**
- * github-comment-guard: blocks the AI agent from replying to human-authored
- * GitHub comments. Only bot-authored comments (GitHub user type "Bot" or login
- * ending in "[bot]") are replyable by the agent.
+ * github-comment-guard: blocks the AI agent from creating pull request reviews
+ * and from replying to human-authored GitHub comments. Replies are allowed only
+ * for bot-authored comments.
  *
  * Gate is on by default. `/github-comment-gate [on|off]` shows or changes it.
  * State persistence is configurable through the plugin's `persistGateState` setting.
@@ -157,6 +157,12 @@ function parseBashCommentReply(command: string): {
   };
 }
 
+function blockNewReview(): { block: true; reason: string } {
+  return {
+    block: true,
+    reason: "github-comment-guard: creating or submitting pull request reviews is blocked while the bot-comment-only gate is active. Use /github-comment-gate off to disable.",
+  };
+}
 // ─── Core gate logic ──────────────────────────────────────────────────────────
 
 async function checkAndBlock(
@@ -258,9 +264,25 @@ export default async function commentGuard(
   pi.on("tool_call", async (event: ToolCallEvent) => {
     if (!state.gateEnabled) return;
 
-    if (event.toolName.endsWith("add_reply_to_pull_request_comment")) {
+    const toolName = event.toolName.replaceAll("-", "_");
+
+    if (
+      toolName.endsWith("add_comment_to_pending_review")
+      || toolName.endsWith("pull_request_review_write")
+    ) {
+      const method = (event.input as Record<string, unknown>)["method"];
+      if (
+        toolName.endsWith("add_comment_to_pending_review")
+        || method === "create"
+        || method === "submit_pending"
+      ) {
+        pi.logger.info("github-comment-guard: blocked new pull request review");
+        return blockNewReview();
+      }
+    }
+
+    if (toolName.endsWith("add_reply_to_pull_request_comment")) {
       const replyInfo = extractMcpReply(event.input as Record<string, unknown>);
-      // No reply context = new top-level comment; allow it.
       if (!replyInfo) return;
       return checkAndBlock(pi, replyInfo.repo, replyInfo.commentId, replyInfo.host);
     }
