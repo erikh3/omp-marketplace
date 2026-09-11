@@ -41,6 +41,7 @@ A local source is any path starting with `./`, `~/`, or `/` that contains
 | [`omp-permission-guard`](https://github.com/erikh3/omp-permission-guard) | External source (fork of `hank-warren/omp-permission-guard`, pinned to a reviewed commit). Classifier-based tool-approval gate (heuristic / guardian / hybrid). |
 | [`git-commit-linter`](plugins/git-commit-linter) | Validates model-issued `git commit` messages against commitlint rules before Bash executes. Enforces Conventional Commits by default; defers to repository commitlint config when present. |
 | [`github-comment-guard`](plugins/github-comment-guard) | Blocks replies to human-authored GitHub review comments while allowing bot replies and new top-level comments. |
+| [`hai-proxy-companion`](plugins/hai-proxy-companion) | Shows HAI Proxy spend estimates and context growth below the prompt. Stops omp cleanly with a cap-hit message when HAI returns `DAILY_CAP_EXCEEDED`. |
 
 ## Install a plugin
 

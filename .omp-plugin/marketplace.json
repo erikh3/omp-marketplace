@@ -82,6 +82,13 @@
       "source": "./github-comment-guard",
       "category": "security",
       "homepage": "https://github.com/erikh3/omp-marketplace/tree/main/plugins/github-comment-guard"
+    },
+    {
+      "name": "hai-proxy-companion",
+      "description": "Shows estimated HAI Proxy spend and context growth below the prompt. On DAILY_CAP_EXCEEDED, prints a cap-hit message and exits omp before the retry loop starts.",
+      "source": "./hai-proxy-companion",
+      "category": "productivity",
+      "homepage": "https://github.com/erikh3/omp-marketplace/tree/main/plugins/hai-proxy-companion"
     }
   ]
 }
