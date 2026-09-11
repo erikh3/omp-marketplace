@@ -458,7 +458,7 @@ export async function renderWelcomePreview(
   const detectedVault = findVaultFromDirectory(startDirectory);
   if (!detectedVault) throw new Error(`${startDirectory} is not inside an Obsidian vault`);
   const info = await vaultInfo(detectedVault.path, now);
-  const welcome = new ObsidianWelcome("Claude 4.6 Sonnet", "sap-aicore", detectedVault, info);
+  const welcome = new ObsidianWelcome("Claude Sonnet 5", "Anthropic", detectedVault, info);
   welcome.setAnimationProgress(progress);
   return welcome.render(terminalWidth);
 }
