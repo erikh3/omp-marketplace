@@ -18,13 +18,6 @@
       "homepage": "https://github.com/erikh3/omp-marketplace/tree/main/plugins/plugins-bin-to-path"
     },
     {
-      "name": "pi-vim",
-      "description": "Vim-style modal editing (NORMAL/INSERT) for the omp prompt editor. Esc for NORMAL, i/a/o for INSERT, hjkl/w/b/0/$/gg/G motions, x/dd/dw/D edits.",
-      "source": "./pi-vim",
-      "category": "productivity",
-      "homepage": "https://github.com/erikh3/omp-marketplace/tree/main/plugins/pi-vim"
-    },
-    {
       "name": "obsidian-welcome",
       "description": "Animated Obsidian-aware welcome screen that activates only when omp runs inside an Obsidian vault.",
       "source": "./obsidian-welcome",
