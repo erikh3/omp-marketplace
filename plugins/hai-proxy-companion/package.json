@@ -1,0 +1,30 @@
+{
+  "name": "hai-proxy-companion",
+  "version": "0.1.0",
+  "description": "Shows HAI Proxy spend estimates and context growth, and exits cleanly when HAI returns DAILY_CAP_EXCEEDED.",
+  "private": true,
+  "omp": {
+    "extensions": [
+      "./src/index.ts"
+    ],
+    "settings": {
+      "enabled": { "type": "boolean", "default": true, "description": "Show HAI Proxy usage estimates" },
+      "proxyHost": { "type": "string", "default": "localhost", "description": "HAI Proxy host" },
+      "proxyPort": { "type": "number", "default": 6655, "description": "HAI Proxy port" },
+      "dailyBudgetEur": { "type": "number", "default": 50, "description": "Estimated daily HAI budget in EUR" },
+      "monthlyBudgetEur": { "type": "number", "default": 500, "description": "Estimated monthly HAI budget in EUR" },
+      "warningPercentages": { "type": "array", "default": [50, 80], "description": "Daily estimate warning percentages" },
+      "contextGrowthWarningTokens": { "type": "number", "default": 100000, "description": "Context-growth warning threshold" }
+    }
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "bun test --isolate"
+  },
+  "devDependencies": {
+    "@oh-my-pi/pi-coding-agent": "^18.1.14",
+    "@oh-my-pi/pi-tui": "^18.1.14",
+    "bun-types": "^1.4.2",
+    "typescript": "^7.0.2"
+  }
+}
