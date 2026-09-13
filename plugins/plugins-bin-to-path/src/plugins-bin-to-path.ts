@@ -53,6 +53,26 @@ function readRegistry(
 	return plugins as Record<string, InstalledPluginEntry[]>;
 }
 
+interface PluginLock {
+	plugins?: Record<string, { enabled?: boolean }>;
+}
+
+/** Return enabled linked package paths recorded in omp's plugin lock. */
+function readLinkedPluginPaths(pluginsDir: string): string[] {
+	let parsed: PluginLock;
+	try {
+		parsed = JSON.parse(
+			readFileSync(join(pluginsDir, "omp-plugins.lock.json"), "utf8"),
+		) as PluginLock;
+	} catch {
+		return [];
+	}
+
+	return Object.entries(parsed.plugins ?? {})
+		.filter(([, entry]) => entry.enabled !== false)
+		.map(([name]) => join(pluginsDir, "node_modules", name));
+}
+
 /** Prepend `binDirs` to a PATH string without duplicate entries. */
 function prependToPath(binDirs: string[], currentPath: string): string {
 	if (binDirs.length === 0) return currentPath;
@@ -65,26 +85,30 @@ function prependToPath(binDirs: string[], currentPath: string): string {
 
 export default function (pi: ExtensionAPI) {
 	const log = pi.logger;
-	const registryPath = join(getPluginsDir(), "installed_plugins.json");
+	const pluginsDir = getPluginsDir();
+	const registryPath = join(pluginsDir, "installed_plugins.json");
 	const plugins = readRegistry(registryPath);
-	if (!plugins) {
-		log.error(`Could not read registry file at ${registryPath}`);
-		return;
+
+	const installPaths = readLinkedPluginPaths(pluginsDir);
+	if (plugins) {
+		for (const entries of Object.values(plugins)) {
+			if (!Array.isArray(entries)) continue;
+			for (const entry of entries) {
+				if (entry.enabled === false) continue;
+				if (typeof entry.installPath === "string" && entry.installPath) {
+					installPaths.push(entry.installPath);
+				}
+			}
+		}
 	}
 
 	const binDirs: string[] = [];
 	const seen = new Set<string>();
-	for (const entries of Object.values(plugins)) {
-		if (!Array.isArray(entries)) continue;
-		for (const entry of entries) {
-			if (entry.enabled === false) continue;
-			const installPath = entry.installPath;
-			if (typeof installPath !== "string" || !installPath) continue;
-			const binDir = join(installPath, "bin");
-			if (seen.has(binDir)) continue;
-			seen.add(binDir);
-			if (existsSync(binDir)) binDirs.push(binDir);
-		}
+	for (const installPath of installPaths) {
+		const binDir = join(installPath, "bin");
+		if (seen.has(binDir)) continue;
+		seen.add(binDir);
+		if (existsSync(binDir)) binDirs.push(binDir);
 	}
 	if (binDirs.length === 0) return;
 
