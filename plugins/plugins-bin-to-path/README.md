@@ -1,7 +1,7 @@
 # plugins-bin-to-path
 
-Puts each enabled Claude Code plugin's `bin/` directory on the Bash `PATH`, so
-bundled executables (e.g. `bg-gradle`) run by bare name under omp.
+Puts each enabled plugin's `bin/` directory on the Bash `PATH`, so bundled
+executables such as `bg-gradle` and `session-inspect` run by bare name under omp.
 
 Unlike Claude Code, omp does **not** natively add plugin `bin/` dirs to the Bash
 tool's `PATH`. This extension fills that gap.
@@ -18,11 +18,14 @@ Restart omp after linking.
 
 ## Design rationale
 
-omp's Bash executor gets its base environment from a process-wide cached
+OMP's Bash executor gets its base environment from a process-wide cached
 `getShellConfig()` object. Mutating only `process.env.PATH` is insufficient
 because the shell environment was captured before extensions loaded.
 
-The extension updates both locations during factory initialization:
+The extension discovers both marketplace-installed plugins from
+`installed_plugins.json` and locally linked plugins from `omp-plugins.lock.json`
+plus `node_modules/`. It updates both environment locations during factory
+initialization:
 
 1. `pi.pi.settings.getShellConfig().env.PATH` supplies the Bash tool and `!`
    commands.
