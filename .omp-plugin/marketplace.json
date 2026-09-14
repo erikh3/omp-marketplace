@@ -82,6 +82,23 @@
       "source": "./hai-proxy-companion",
       "category": "productivity",
       "homepage": "https://github.com/erikh3/omp-marketplace/tree/main/plugins/hai-proxy-companion"
+    },
+    {
+      "name": "omp-quick-commit",
+      "description": "One-key Git commit and push for OMP, with conventional commit messages generated from recent agent session context on the quick path",
+      "version": "0.2.0",
+      "author": { "name": "3xian" },
+      "category": "development",
+      "homepage": "https://github.com/3xian/omp-quick-commit",
+      "repository": "https://github.com/3xian/omp-quick-commit",
+      "license": "MIT",
+      "keywords": ["git", "commit", "push", "conventional-commits"],
+      "source": {
+        "source": "github",
+        "repo": "3xian/omp-quick-commit",
+        "ref": "main",
+        "sha": "f61d493bd192288f956b9adcf3cb1342fa1f1270"
+      }
     }
   ]
 }
