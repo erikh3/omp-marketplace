@@ -134,6 +134,12 @@ Repository commitlint configuration can change these results. For example, a
 repository may allow extra types, require a ticket-shaped scope, or use different
 subject rules.
 
+When a length rule fails, the block reason tells the agent to shorten the
+message. If the message combines independent changes, it recommends splitting
+them into separate commits. As a last resort for a valid message that is
+awkward to pass inline, the agent can write it to a file and use
+`git commit -F <file>`. This is not recommended and does not bypass lint rules.
+
 ## Repository commitlint config
 
 When a repository has its own commitlint config (`commitlint.config.js`,
