@@ -82,6 +82,13 @@
       "source": "./hai-proxy-companion",
       "category": "productivity",
       "homepage": "https://github.com/erikh3/omp-marketplace/tree/main/plugins/hai-proxy-companion"
+    },
+    {
+      "name": "hai-jwt-retry",
+      "description": "Automatically retries the current agent turn when HAI proxy returns a JWT-expired 401, so you no longer need to manually send a continuation message after long idle periods.",
+      "source": "./hai-jwt-retry",
+      "category": "productivity",
+      "homepage": "https://github.com/erikh3/omp-marketplace/tree/main/plugins/hai-jwt-retry"
     }
   ]
 }
