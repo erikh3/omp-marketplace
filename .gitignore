@@ -1,3 +1,4 @@
 node_modules/
 old-claude-plugin-bin-path/
 sample/
+plugins/*/node_modules
