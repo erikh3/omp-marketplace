@@ -57,7 +57,8 @@ export function formatBlockReason(reason: string, rawCommand: string): string {
  * Format commitlint violations into a single block-reason string.
  *
  * Includes a bounded header preview followed by one line per error in the form
- * `[rule-name] message`. Warnings are never included. Bodies are never included.
+ * `[rule-name] message`. Length errors also include concrete recovery guidance.
+ * Warnings and commit bodies are never included.
  *
  * @param header  The raw commit subject line (first line of the message).
  * @param errors  The error outcomes from @commitlint/lint.
@@ -68,10 +69,17 @@ export function formatLintErrors(
 ): string {
 	const preview = formatHeaderPreview(header);
 	const errorLines = errors.map((e) => `[${e.name}] ${e.message}`);
+	const guidance = errors.some((error) => error.name.includes("max-length"))
+		? [
+			"Use a shorter commit message. If the message covers independent changes, split them into separate commits.",
+			"Last resort: write a valid message to a file and use `git commit -F <file>`. This is not recommended and does not bypass lint rules.",
+		]
+		: [];
 	return [
 		`git commit blocked: commit message failed lint checks.`,
 		`Header: ${preview}`,
 		...errorLines,
+		...guidance,
 	].join("\n");
 }
 

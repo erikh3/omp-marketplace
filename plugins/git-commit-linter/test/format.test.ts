@@ -229,6 +229,23 @@ describe("formatLintErrors", () => {
 		expect(preview.endsWith("\u2026")).toBe(true);
 	});
 
+	test("suggests shortening or splitting commits for length errors", () => {
+		const result = formatLintErrors("feat: describe several independent changes in excessive detail", [
+			makeError("header-max-length", "header must not be longer than 50 characters"),
+		]);
+		expect(result).toContain("Use a shorter commit message");
+		expect(result).toContain("split them into separate commits");
+		expect(result).toContain("git commit -F <file>");
+		expect(result).toContain("not recommended");
+		expect(result).toContain("does not bypass lint rules");
+	});
+
+	test("does not add length guidance for unrelated lint errors", () => {
+		const result = formatLintErrors("WIP", [makeError("type-empty", "type may not be empty")]);
+		expect(result).not.toContain("Use a shorter commit message");
+		expect(result).not.toContain("git commit -F <file>");
+	});
+
 	test("normalizes control characters in the header preview", () => {
 		const result = formatLintErrors("fix\x01something", [makeError("type-enum", "type must be one of [feat, fix]")]);
 		expect(result).not.toContain("\x01");
