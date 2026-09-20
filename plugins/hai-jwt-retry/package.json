@@ -10,9 +10,7 @@
     "settings": {
       "enabled": { "type": "boolean", "default": true, "description": "Enable automatic JWT-expiry retry" },
       "proxyHost": { "type": "string", "default": "localhost", "description": "HAI Proxy host (must match hai-proxy-companion if installed)" },
-      "proxyPort": { "type": "number", "default": 6655, "description": "HAI Proxy port" },
-      "maxRetries": { "type": "number", "default": 2, "description": "Maximum consecutive JWT-expiry retries before giving up" },
-      "baseDelayMs": { "type": "number", "default": 2000, "description": "Base delay in milliseconds before first retry (doubles each attempt)" }
+      "proxyPort": { "type": "number", "default": 6655, "description": "HAI Proxy port" }
     }
   },
   "scripts": {

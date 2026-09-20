@@ -6,16 +6,14 @@ interface Config {
 	enabled: boolean;
 	proxyHost: string;
 	proxyPort: number;
-	maxRetries: number;
-	baseDelayMs: number;
 }
+
+const RETRY_DELAYS_MS = [0, 3_000, 10_000];
 
 const DEFAULTS: Config = {
 	enabled: true,
 	proxyHost: "localhost",
 	proxyPort: 6655,
-	maxRetries: 2,
-	baseDelayMs: 2000,
 };
 
 function loadConfig(settings: Record<string, unknown>): Config {
@@ -29,14 +27,6 @@ function loadConfig(settings: Record<string, unknown>): Config {
 			typeof settings["proxyPort"] === "number" && settings["proxyPort"] > 0
 				? settings["proxyPort"]
 				: DEFAULTS.proxyPort,
-		maxRetries:
-			typeof settings["maxRetries"] === "number" && settings["maxRetries"] >= 0
-				? Math.floor(settings["maxRetries"])
-				: DEFAULTS.maxRetries,
-		baseDelayMs:
-			typeof settings["baseDelayMs"] === "number" && settings["baseDelayMs"] >= 0
-				? settings["baseDelayMs"]
-				: DEFAULTS.baseDelayMs,
 	};
 }
 
@@ -101,28 +91,31 @@ export default function haiJwtRetry(pi: ExtensionAPI): void {
 
 		if (!isJwtExpiredError(message.errorMessage)) return;
 
-		if (consecutiveJwtFailures >= config.maxRetries) {
+		const attempt = consecutiveJwtFailures;
+		const delay = RETRY_DELAYS_MS[attempt];
+		if (delay === undefined) {
 			ctx.ui.notify(
-				`HAI proxy: JWT auth failed ${config.maxRetries} times in a row. Check proxy credentials or restart omp.`,
+				`HAI proxy: JWT auth failed ${RETRY_DELAYS_MS.length} times in a row. Check proxy credentials or restart omp.`,
 				"error",
 			);
 			return;
 		}
 
 		consecutiveJwtFailures++;
-		const attempt = consecutiveJwtFailures;
-		// Increase delay with each attempt so the background refresher has time.
-		const delay = config.baseDelayMs * attempt;
-
 		ctx.ui.notify(
-			`HAI proxy: JWT expired — auto-retrying in ${(delay / 1000).toFixed(0)}s (${attempt}/${config.maxRetries})`,
+			`HAI proxy: JWT expired. Auto-retrying in ${(delay / 1000).toFixed(0)}s (${attempt + 1}/${RETRY_DELAYS_MS.length})`,
 			"info",
 		);
 
-		pi.logger.info(`[hai-jwt-retry] JWT expired on attempt ${attempt}, retrying after ${delay}ms`);
+		pi.logger.info(`[hai-jwt-retry] JWT expired on attempt ${attempt + 1}, retrying after ${delay}ms`);
+
+		if (delay === 0) {
+			pi.sendUserMessage(".");
+			return;
+		}
 
 		ctx.setTimeout(() => {
-			pi.sendUserMessage("(auto-retry: HAI proxy JWT refreshed)");
+			pi.sendUserMessage(".");
 		}, delay);
 	});
 }
