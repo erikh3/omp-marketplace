@@ -19,8 +19,6 @@ The Git backend accepts ordered `gitGlobalArgs` and `worktreeArgs`. It keeps sup
 
 `list` returns concise locations for non-main, non-prunable worktrees. `remove` accepts any linked worktree in the repository, except the main worktree. Remove an incorrectly placed worktree, then create it through the tool again.
 
-Under the Herdr backend, `remove` refuses to delete a worktree whose workspace hosts the current agent session (`HERDR_WORKSPACE_ID`), since tearing down that workspace would close the pane and kill the running agent. Run the removal from a different workspace instead.
-
 ## Direct Git commands
 
 The extension observes model-issued Bash calls for direct `git worktree add` and `git worktree move` commands. It never blocks, rewrites, or intercepts a user `!` command.
