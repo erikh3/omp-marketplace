@@ -18,6 +18,13 @@
       "homepage": "https://github.com/erikh3/omp-marketplace/tree/main/plugins/plugins-bin-to-path"
     },
     {
+      "name": "herdr-session-agent-name-sync",
+      "description": "Keeps the current Herdr agent name synchronized with the omp session title.",
+      "source": "./herdr-session-agent-name-sync",
+      "category": "productivity",
+      "homepage": "https://github.com/erikh3/omp-marketplace/tree/main/plugins/herdr-session-agent-name-sync"
+    },
+    {
       "name": "obsidian-welcome",
       "description": "Animated Obsidian-aware welcome screen that activates only when omp runs inside an Obsidian vault.",
       "source": "./obsidian-welcome",
