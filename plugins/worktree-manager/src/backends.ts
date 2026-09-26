@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
-import { mkdir, realpath } from "node:fs/promises";
-import { basename, dirname, resolve } from "node:path";
+import { mkdir, readdir, readlink, realpath, unlink } from "node:fs/promises";
+import { basename, dirname, join, resolve, sep } from "node:path";
 
 import {
 	resolveManagedPath,
@@ -130,9 +130,12 @@ export class GitBackend implements WorktreeBackend {
 		const source = await realpath(request.path).catch(() => {
 			throw new WorktreeManagerError(`Worktree path does not exist: ${request.path}`);
 		});
-		const worktree = (await listGitWorktrees(this.runner, context)).find((entry) => entry.path === source);
+		const worktrees = await listGitWorktrees(this.runner, context);
+		const worktree = worktrees.find((entry) => entry.path === source);
 		if (!worktree) throw new WorktreeManagerError(`Path is not a worktree for ${context.repository}: ${source}`);
 		if (worktree.isMain) throw new WorktreeManagerError("Cannot remove the main worktree");
+		const mainWorktree = worktrees.find((entry) => entry.isMain);
+		if (mainWorktree) await this.removeMainWorktreeSymlinks(source, mainWorktree.path);
 		await requireSuccess(
 			this.runner,
 			"git",
@@ -140,6 +143,32 @@ export class GitBackend implements WorktreeBackend {
 			context,
 			"Cannot remove Git worktree",
 		);
+	}
+
+	/**
+	 * Removes symlinks at the worktree root whose targets resolve to a path inside
+	 * the main worktree. These are safe to unlink: they are created by intra-repo
+	 * tooling (e.g. the graphify-out post-checkout hook) and cannot exist once the
+	 * linked worktree is gone anyway.
+	 *
+	 * Symlinks pointing anywhere else are left untouched.
+	 */
+	private async removeMainWorktreeSymlinks(worktreePath: string, mainWorktreePath: string): Promise<void> {
+		const entries = await readdir(worktreePath, { withFileTypes: true }).catch(() => null);
+		if (!entries) return;
+		for (const entry of entries) {
+			if (!entry.isSymbolicLink()) continue;
+			const linkPath = join(worktreePath, entry.name);
+			try {
+				const target = await readlink(linkPath);
+				const resolved = resolve(worktreePath, target);
+				if (resolved === mainWorktreePath || resolved.startsWith(mainWorktreePath + sep)) {
+					await unlink(linkPath);
+				}
+			} catch {
+				// ignore per-entry errors
+			}
+		}
 	}
 }
 

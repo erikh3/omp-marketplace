@@ -1,6 +1,6 @@
 {
   "name": "worktree-manager",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Creates and manages durable Git worktrees through an OMP tool with backend-owned placement.",
   "private": true,
   "omp": {
