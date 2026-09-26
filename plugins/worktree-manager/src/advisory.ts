@@ -32,7 +32,7 @@ function formatReminder(observation: Observation, path: string): string {
 		`[worktree-manager] Created worktree violates the configured ${observation.backend} placement policy.`,
 		`Expected: ${observation.policy.expected}`,
 		`Created: ${path}`,
-		"Action: call worktree_manager with relocate to move this worktree now.",
+		"Action: remove this worktree, then recreate it with worktree_manager.",
 	].join("\n");
 }
 
@@ -106,11 +106,11 @@ export class AdvisoryTracker {
 	}
 }
 
-export function relocationReminder(incident: { backend: string; expected: string; path: string }): string {
+export function incidentReminder(incident: { backend: string; expected: string; path: string }): string {
 	return [
 		`[worktree-manager] Unresolved ${incident.backend} placement incident.`,
 		`Expected: ${incident.expected}`,
 		`Created: ${incident.path}`,
-		"Action: call worktree_manager with relocate to move this worktree now.",
+		"Action: remove this worktree, then recreate it with worktree_manager.",
 	].join("\n");
 }

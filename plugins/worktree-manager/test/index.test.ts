@@ -33,7 +33,11 @@ test("registers a lifecycle tool and lets direct worktree Bash calls continue", 
 	const api = {
 		zod: z,
 		exec: async (_command: string, args: string[]) => ({
-			stdout: args[0] === "rev-parse" ? `${root}\n` : "",
+			stdout: args[0] === "rev-parse"
+				? `${root}\n`
+				: args[0] === "worktree" && args[1] === "list"
+					? `worktree ${root}\nbranch refs/heads/main\n\nworktree /tmp/prunable\nprunable stale\n\nworktree ${join(root, ".omp", "worktrees", "topic")}\nbranch refs/heads/topic\n`
+					: "",
 			stderr: "",
 			code: 0,
 			killed: false,
@@ -77,5 +81,5 @@ test("registers a lifecycle tool and lets direct worktree Bash calls continue", 
 		input: { command: `git worktree add ${join(root, ".omp", "worktrees", "topic")} HEAD` },
 	}, context)).toBeUndefined();
 	const result = await tool?.execute("tool-1", { action: "list", repository: root });
-	expect(result?.content[0]?.text).toContain("Worktrees:");
+	expect(result?.content[0]?.text).toBe(`Backend: git\nRepository: ${root}\nWorktree locations:\n- ${join(root, ".omp", "worktrees", "topic")}`);
 });

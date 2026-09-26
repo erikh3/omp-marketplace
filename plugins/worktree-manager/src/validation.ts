@@ -1,6 +1,6 @@
 import { relative, resolve, sep } from "node:path";
 
-export type WorktreeAction = "create" | "list" | "relocate" | "remove";
+export type WorktreeAction = "create" | "list" | "remove";
 
 export interface WorktreeRequest {
 	action: WorktreeAction;

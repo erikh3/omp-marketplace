@@ -5,7 +5,7 @@ import type {
 } from "@oh-my-pi/pi-coding-agent";
 import { isToolCallEventType } from "@oh-my-pi/pi-coding-agent/extensibility/extensions";
 
-import { AdvisoryTracker, relocationReminder } from "./advisory.ts";
+import { AdvisoryTracker, incidentReminder } from "./advisory.ts";
 import { IncidentStore } from "./incident-store.ts";
 import { WorktreeService } from "./worktree-service.ts";
 import type { WorktreeServiceResult } from "./worktree-service.ts";
@@ -31,7 +31,7 @@ function requestFromParams(params: unknown): WorktreeRequest {
 	const gitGlobalArgs = "gitGlobalArgs" in params ? params.gitGlobalArgs : undefined;
 	const worktreeArgs = "worktreeArgs" in params ? params.worktreeArgs : undefined;
 	if (
-		(action !== "create" && action !== "list" && action !== "relocate" && action !== "remove")
+		(action !== "create" && action !== "list" && action !== "remove")
 		|| typeof repository !== "string"
 		|| (branch !== undefined && typeof branch !== "string")
 		|| (baseRef !== undefined && typeof baseRef !== "string")
@@ -54,16 +54,17 @@ function requestFromParams(params: unknown): WorktreeRequest {
 
 function formatResult(result: WorktreeServiceResult): string {
 	const header = `Backend: ${result.backend}\nRepository: ${result.repository}`;
-	if (result.worktrees) {
-		const rows = result.worktrees.map((worktree) => `${worktree.isMain ? "main" : "linked"}\t${worktree.branch ?? "detached"}\t${worktree.path}`);
-		return `${header}\nWorktrees:\n${rows.join("\n")}`;
+	if (result.action === "list") {
+		const locations = result.worktrees
+			?.filter((worktree) => !worktree.isMain && !worktree.isPrunable)
+			.map((worktree) => `- ${worktree.path}`)
+			?? [];
+		return `${header}\nWorktree locations:${locations.length > 0 ? `\n${locations.join("\n")}` : " none"}`;
 	}
-	const details = [
-		result.branch ? `Branch: ${result.branch}` : undefined,
-		result.path ? `Path: ${result.path}` : undefined,
-		result.placement ? `Placement: ${result.placement.expected}` : undefined,
-	].filter((line): line is string => line !== undefined);
-	return [header, ...details].join("\n");
+	if (result.action === "create") {
+		return `${header}\nNew worktree location: ${result.path}`;
+	}
+	return `${header}\nRemoved worktree location: ${result.path}`;
 }
 
 function message(error: unknown): string {
@@ -87,14 +88,14 @@ export default function worktreeManager(pi: ExtensionAPI, options: WorktreeManag
 	pi.registerTool({
 		name: "worktree_manager",
 		label: "Worktree manager",
-		description: "Create, list, relocate, or remove durable Git worktrees using the selected placement backend. Do not supply a destination path to create.",
+		description: "Create, list, or remove durable Git worktrees using the selected placement backend. Do not supply a destination path to create.",
 		approval: "write",
 		parameters: z.object({
-			action: z.enum(["create", "list", "relocate", "remove"]),
+			action: z.enum(["create", "list", "remove"]),
 			repository: z.string().describe("Git top-level directory"),
 			branch: z.string().optional().describe("Required for create"),
 			baseRef: z.string().optional().describe("Required for create"),
-			path: z.string().optional().describe("Existing worktree path required for relocate and remove"),
+			path: z.string().optional().describe("Existing worktree path required for remove"),
 			gitGlobalArgs: z.array(z.string()).optional().describe("Ordered Git flags placed before worktree"),
 			worktreeArgs: z.array(z.string()).optional().describe("Ordered worktree flags that do not override managed inputs"),
 		}),
@@ -124,7 +125,7 @@ export default function worktreeManager(pi: ExtensionAPI, options: WorktreeManag
 			const repository = await service.resolveRepository(ctx.cwd);
 			const unresolved = await incidents.list(repository);
 			if (unresolved.length === 0) return;
-			pi.sendMessage(unresolved.map(relocationReminder).join("\n\n"), { deliverAs: "nextTurn" });
+			pi.sendMessage(unresolved.map(incidentReminder).join("\n\n"), { deliverAs: "nextTurn" });
 		} catch {
 			// The session may start outside a Git repository.
 		}

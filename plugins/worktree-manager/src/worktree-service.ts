@@ -7,11 +7,12 @@ import { requireCreateRequest, requirePathRequest, WorktreeManagerError } from "
 import type { WorktreeRequest } from "./validation.ts";
 
 export interface WorktreeServiceResult {
+	action: WorktreeRequest["action"];
 	backend: string;
 	repository: string;
 	path?: string;
 	branch?: string;
-	worktrees?: Array<{ path: string; branch?: string; isMain: boolean }>;
+	worktrees?: Array<{ path: string; branch?: string; isMain: boolean; isPrunable: boolean }>;
 	placement?: PlacementPolicy;
 }
 
@@ -36,6 +37,7 @@ export class WorktreeService {
 				requireCreateRequest(request);
 				const created = await this.backend.create(request, context);
 				return {
+					action: request.action,
 					backend: this.backend.id,
 					repository,
 					branch: request.branch,
@@ -45,26 +47,14 @@ export class WorktreeService {
 			}
 			case "list": {
 				const worktrees = await this.backend.listAll(context);
-				return { backend: this.backend.id, repository, worktrees };
-			}
-			case "relocate": {
-				requirePathRequest(request);
-				const originalPath = await this.canonicalPath(request.path);
-				const moved = await this.backend.relocate({ ...request, path: originalPath }, context);
-				await this.incidents.clear(repository, originalPath);
-				return {
-					backend: this.backend.id,
-					repository,
-					path: moved.path,
-					placement: moved.policy,
-				};
+				return { action: request.action, backend: this.backend.id, repository, worktrees };
 			}
 			case "remove": {
 				requirePathRequest(request);
 				const originalPath = await this.canonicalPath(request.path);
 				await this.backend.remove({ ...request, path: originalPath }, context);
 				await this.incidents.clear(repository, originalPath);
-				return { backend: this.backend.id, repository, path: originalPath };
+				return { action: request.action, backend: this.backend.id, repository, path: originalPath };
 			}
 		}
 	}

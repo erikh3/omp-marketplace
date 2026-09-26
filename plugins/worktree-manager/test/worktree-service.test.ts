@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtemp, mkdir, realpath, rm } from "node:fs/promises";
+import { mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -70,12 +70,12 @@ describe("WorktreeService", () => {
 		const result = await service.execute({ action: "list", repository: root, gitGlobalArgs: [], worktreeArgs: [] });
 
 		expect(result.worktrees).toEqual([
-			{ path: root, branch: "main", isMain: true },
-			{ path: unmanaged, branch: "topic", isMain: false },
+			{ path: root, branch: "main", isMain: true, isPrunable: false },
+			{ path: unmanaged, branch: "topic", isMain: false, isPrunable: false },
 		]);
 	});
 
-	test("relocates a linked worktree and clears its incident", async () => {
+	test("removes a linked worktree outside the managed root and clears its incident", async () => {
 		const root = await temporaryRepository();
 		const outside = await mkdtemp(join(tmpdir(), "worktree-manager-outside-"));
 		directories.push(outside);
@@ -85,10 +85,9 @@ describe("WorktreeService", () => {
 		await incidents.record({ repository: root, path: source, backend: "git", expected: join(root, ".omp", "worktrees"), createdAt: "2026-01-01T00:00:00.000Z" });
 		const service = new WorktreeService(runner, incidents, new GitBackend(runner));
 
-		const result = await service.execute({ action: "relocate", repository: root, path: source, gitGlobalArgs: [], worktreeArgs: [] });
+		await service.execute({ action: "remove", repository: root, path: source, gitGlobalArgs: [], worktreeArgs: [] });
 
-		expect(result.path).toBe(join(root, ".omp", "worktrees", "topic"));
-		expect(runner.calls.at(-1)?.args).toEqual(["worktree", "move", source, join(root, ".omp", "worktrees", "topic")]);
+		expect(runner.calls.at(-1)?.args).toEqual(["worktree", "remove", source]);
 		expect(await incidents.list(root)).toEqual([]);
 	});
 

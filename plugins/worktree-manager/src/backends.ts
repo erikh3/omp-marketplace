@@ -3,7 +3,6 @@ import { mkdir, realpath } from "node:fs/promises";
 import { basename, dirname, resolve } from "node:path";
 
 import {
-	isPathWithin,
 	resolveManagedPath,
 	validateGitPassthrough,
 	WorktreeManagerError,
@@ -24,6 +23,7 @@ export interface GitWorktree {
 	path: string;
 	branch?: string;
 	isMain: boolean;
+	isPrunable: boolean;
 }
 
 export type PlacementPolicy =
@@ -41,7 +41,6 @@ export interface WorktreeBackend {
 	placementPolicy(context: BackendContext): Promise<PlacementPolicy>;
 	create(request: WorktreeRequest, context: BackendContext): Promise<{ path: string; policy: PlacementPolicy }>;
 	listAll(context: BackendContext): Promise<GitWorktree[]>;
-	relocate(request: WorktreeRequest, context: BackendContext): Promise<{ path: string; policy: PlacementPolicy }>;
 	remove(request: WorktreeRequest, context: BackendContext): Promise<void>;
 }
 
@@ -58,6 +57,7 @@ export function parseGitWorktrees(output: string): GitWorktree[] {
 			path: values["worktree"],
 			branch: values["branch"]?.replace("refs/heads/", ""),
 			isMain: index === 0,
+			isPrunable: values["prunable"] !== undefined,
 		}];
 	});
 }
@@ -123,29 +123,6 @@ export class GitBackend implements WorktreeBackend {
 		return listGitWorktrees(this.runner, context);
 	}
 
-	async relocate(request: WorktreeRequest, context: BackendContext): Promise<{ path: string; policy: PlacementPolicy }> {
-		if (!request.path) throw new WorktreeManagerError("relocate requires a worktree path");
-		validateGitPassthrough(request.gitGlobalArgs, request.worktreeArgs);
-		const source = await realpath(request.path).catch(() => {
-			throw new WorktreeManagerError(`Worktree path does not exist: ${request.path}`);
-		});
-		const worktree = (await listGitWorktrees(this.runner, context)).find((entry) => entry.path === source);
-		if (!worktree) throw new WorktreeManagerError(`Path is not a worktree for ${context.repository}: ${source}`);
-		if (worktree.isMain) throw new WorktreeManagerError("Cannot relocate the main worktree");
-		if (!worktree.branch) throw new WorktreeManagerError("Cannot relocate a detached worktree without a branch");
-		const destination = resolveManagedPath(context.repository, worktree.branch);
-		if (source === destination) return { path: source, policy: await this.placementPolicy(context) };
-		if (existsSync(destination)) throw new WorktreeManagerError(`Worktree destination already exists: ${destination}`);
-		await mkdir(dirname(destination), { recursive: true });
-		await requireSuccess(
-			this.runner,
-			"git",
-			[...request.gitGlobalArgs, "worktree", "move", ...request.worktreeArgs, source, destination],
-			context,
-			"Cannot relocate Git worktree",
-		);
-		return { path: destination, policy: await this.placementPolicy(context) };
-	}
 
 	async remove(request: WorktreeRequest, context: BackendContext): Promise<void> {
 		if (!request.path) throw new WorktreeManagerError("remove requires a worktree path");
@@ -153,10 +130,6 @@ export class GitBackend implements WorktreeBackend {
 		const source = await realpath(request.path).catch(() => {
 			throw new WorktreeManagerError(`Worktree path does not exist: ${request.path}`);
 		});
-		const policy = await this.placementPolicy(context);
-		if (policy.kind !== "local" || !isPathWithin(source, policy.managedRoot)) {
-			throw new WorktreeManagerError("Git backend removes only worktrees inside its managed root");
-		}
 		const worktree = (await listGitWorktrees(this.runner, context)).find((entry) => entry.path === source);
 		if (!worktree) throw new WorktreeManagerError(`Path is not a worktree for ${context.repository}: ${source}`);
 		if (worktree.isMain) throw new WorktreeManagerError("Cannot remove the main worktree");
@@ -249,13 +222,11 @@ export class HerdrBackend implements WorktreeBackend {
 				path: entry.path,
 				branch: "branch" in entry && typeof entry.branch === "string" ? entry.branch : undefined,
 				isMain: !("is_linked_worktree" in entry) || entry.is_linked_worktree !== true,
+				isPrunable: "is_prunable" in entry && entry.is_prunable === true,
 			}];
 		});
 	}
 
-	async relocate(_request: WorktreeRequest, _context: BackendContext): Promise<{ path: string; policy: PlacementPolicy }> {
-		throw new WorktreeManagerError("Installed Herdr does not expose a worktree relocation command. Create through Herdr, then remove the old Herdr workspace after migrating its changes.");
-	}
 
 	async remove(request: WorktreeRequest, context: BackendContext): Promise<void> {
 		if (!request.path) throw new WorktreeManagerError("remove requires a worktree path");

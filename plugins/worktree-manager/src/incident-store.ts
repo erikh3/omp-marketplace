@@ -2,7 +2,7 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 
-export interface RelocationIncident {
+export interface PlacementIncident {
 	repository: string;
 	path: string;
 	backend: string;
@@ -12,10 +12,10 @@ export interface RelocationIncident {
 
 interface IncidentDocument {
 	version: 1;
-	incidents: RelocationIncident[];
+	incidents: PlacementIncident[];
 }
 
-function key(incident: Pick<RelocationIncident, "repository" | "path">): string {
+function key(incident: Pick<PlacementIncident, "repository" | "path">): string {
 	return `${incident.repository}\u0000${incident.path}`;
 }
 
@@ -23,14 +23,14 @@ function key(incident: Pick<RelocationIncident, "repository" | "path">): string 
 export class IncidentStore {
 	constructor(private readonly file = join(homedir(), ".omp", "agent", "worktree-manager-incidents.json")) {}
 
-	async list(repository?: string): Promise<RelocationIncident[]> {
+	async list(repository?: string): Promise<PlacementIncident[]> {
 		const document = await this.read();
 		return repository === undefined
 			? document.incidents
 			: document.incidents.filter((incident) => incident.repository === repository);
 	}
 
-	async record(incident: RelocationIncident): Promise<void> {
+	async record(incident: PlacementIncident): Promise<void> {
 		const document = await this.read();
 		const incidents = document.incidents.filter((existing) => key(existing) !== key(incident));
 		incidents.push(incident);
@@ -69,7 +69,7 @@ function isIncidentDocument(value: unknown): value is IncidentDocument {
 	return value.version === 1 && Array.isArray(value.incidents) && value.incidents.every(isIncident);
 }
 
-function isIncident(value: unknown): value is RelocationIncident {
+function isIncident(value: unknown): value is PlacementIncident {
 	if (!value || typeof value !== "object") return false;
 	return ["repository", "path", "backend", "expected", "createdAt"].every(
 		(field) => field in value && typeof value[field as keyof typeof value] === "string",

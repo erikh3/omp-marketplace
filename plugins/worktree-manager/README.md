@@ -6,7 +6,7 @@ OMP extension for model-initiated durable Git worktrees. It registers one tool:
 worktree_manager
 ```
 
-Use it for `create`, `list`, `relocate`, and `remove`. The tool owns destination selection. `create` takes a Git top-level directory, branch, and base ref. It does not accept a destination path.
+Use it for `create`, `list`, and `remove`. The tool owns destination selection. `create` takes a Git top-level directory, branch, and base ref. It does not accept a destination path.
 
 ## Placement backends
 
@@ -17,9 +17,7 @@ Every backend manages Git worktrees. Backend selection is automatic:
 
 The Git backend accepts ordered `gitGlobalArgs` and `worktreeArgs`. It keeps supported flags in their original command positions. It rejects only values that would replace the repository, operation, branch, base ref, or managed destination.
 
-`list` reports every worktree registered by Git for the repository, including worktrees this plugin did not create. The Git backend removes only worktrees under its managed root. `relocate` moves a linked branch worktree into that root.
-
-The installed Herdr CLI has no worktree relocation command. Under Herdr, create a replacement through the tool and migrate changes before removing the old Herdr workspace.
+`list` returns concise locations for non-main, non-prunable worktrees. `remove` accepts any linked worktree in the repository, except the main worktree. Remove an incorrectly placed worktree, then create it through the tool again.
 
 ## Direct Git commands
 
@@ -31,7 +29,7 @@ When an absolute destination violates the active backend policy, the Bash result
 ~/.omp/agent/worktree-manager-incidents.json
 ```
 
-The next OMP session in that repository receives a `nextTurn` reminder until `worktree_manager` relocates or removes the worktree. No session replay, rewind, or history mutation is supported.
+The next OMP session in that repository receives a `nextTurn` reminder until `worktree_manager` removes the worktree. No session replay, rewind, or history mutation is supported.
 
 OMP task isolation and pull-request checkout remain separate temporary checkout features. This plugin does not replace or block either path.
 
