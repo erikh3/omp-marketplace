@@ -8,7 +8,35 @@ interface Config {
 	proxyPort: number;
 }
 
+interface RetryCause {
+	message: string;
+	exhaustedMessage: string;
+	recovery: string;
+	logLabel: string;
+}
+
 const RETRY_DELAYS_MS = [0, 3_000, 10_000];
+
+const RETRY_CAUSES: ReadonlyArray<{ pattern: RegExp; cause: RetryCause }> = [
+	{
+		pattern: /jwt.*expir|expir.*jwt|401.*jwt/i,
+		cause: {
+			message: "JWT expired",
+			exhaustedMessage: "JWT auth failed",
+			logLabel: "JWT expired",
+			recovery: "Check proxy credentials or restart omp.",
+		},
+	},
+	{
+		pattern: /invalid_encrypted_content|encrypted content .*could not be (?:verified|decrypted|parsed)/i,
+		cause: {
+			message: "encrypted reasoning rejected",
+			exhaustedMessage: "encrypted reasoning was rejected",
+			logLabel: "encrypted reasoning rejected",
+			recovery: "Start a fresh session or switch back to the originating model.",
+		},
+	},
+];
 
 const DEFAULTS: Config = {
 	enabled: true,
@@ -53,16 +81,15 @@ function extractErrorText(errorMessage: unknown): string {
 	return "";
 }
 
-function isJwtExpiredError(errorMessage: unknown): boolean {
+function retryCause(errorMessage: unknown): RetryCause | undefined {
 	const text = extractErrorText(errorMessage);
-	// Matches: "401 Jwt is expired", "jwt expired", "JWT has expired", etc.
-	return /jwt.*expir|expir.*jwt|401.*jwt/i.test(text);
+	return RETRY_CAUSES.find(({ pattern }) => pattern.test(text))?.cause;
 }
 
-/** Auto-retries the current agent turn when HAI proxy returns a JWT-expired 401. */
+/** Retries transient HAI Proxy authentication and encrypted-reasoning failures. */
 export default function haiJwtRetry(pi: ExtensionAPI): void {
 	let config: Config = DEFAULTS;
-	let consecutiveJwtFailures = 0;
+	let consecutiveFailures = 0;
 
 	pi.on("session_start", async (_event, _ctx) => {
 		try {
@@ -71,7 +98,7 @@ export default function haiJwtRetry(pi: ExtensionAPI): void {
 		} catch {
 			config = DEFAULTS;
 		}
-		consecutiveJwtFailures = 0;
+		consecutiveFailures = 0;
 	});
 
 	pi.on("turn_end", (event: TurnEndEvent, ctx) => {
@@ -81,33 +108,36 @@ export default function haiJwtRetry(pi: ExtensionAPI): void {
 		if (!message) return;
 
 		if (message.stopReason !== "error") {
-			// Successful turn resets the consecutive-failure counter.
-			consecutiveJwtFailures = 0;
+			consecutiveFailures = 0;
 			return;
 		}
 
 		const model = ctx.models.current();
 		if (!isHaiEndpoint(model?.baseUrl, config)) return;
 
-		if (!isJwtExpiredError(message.errorMessage)) return;
+		const cause = retryCause(message.errorMessage);
+		if (!cause) {
+			consecutiveFailures = 0;
+			return;
+		}
 
-		const attempt = consecutiveJwtFailures;
+		const attempt = consecutiveFailures;
 		const delay = RETRY_DELAYS_MS[attempt];
 		if (delay === undefined) {
 			ctx.ui.notify(
-				`HAI proxy: JWT auth failed ${RETRY_DELAYS_MS.length} times in a row. Check proxy credentials or restart omp.`,
+				`HAI proxy: ${cause.exhaustedMessage} ${RETRY_DELAYS_MS.length} times in a row. ${cause.recovery}`,
 				"error",
 			);
 			return;
 		}
 
-		consecutiveJwtFailures++;
+		consecutiveFailures++;
 		ctx.ui.notify(
-			`HAI proxy: JWT expired. Auto-retrying in ${(delay / 1000).toFixed(0)}s (${attempt + 1}/${RETRY_DELAYS_MS.length})`,
+			`HAI proxy: ${cause.message}. Auto-retrying in ${(delay / 1000).toFixed(0)}s (${attempt + 1}/${RETRY_DELAYS_MS.length})`,
 			"info",
 		);
 
-		pi.logger.info(`[hai-jwt-retry] JWT expired on attempt ${attempt + 1}, retrying after ${delay}ms`);
+		pi.logger.info(`[hai-jwt-retry] ${cause.logLabel} on attempt ${attempt + 1}, retrying after ${delay}ms`);
 
 		if (delay === 0) {
 			pi.sendUserMessage(".");

@@ -1,20 +1,21 @@
 {
   "name": "hai-jwt-retry",
-  "version": "0.1.0",
-  "description": "Auto-retries after HAI proxy returns a JWT-expired 401, eliminating the need to manually send a continuation message.",
+  "version": "0.2.0",
+  "description": "Auto-retries transient HAI Proxy authentication and encrypted-reasoning failures.",
   "private": true,
   "omp": {
     "extensions": [
       "./src/index.ts"
     ],
     "settings": {
-      "enabled": { "type": "boolean", "default": true, "description": "Enable automatic JWT-expiry retry" },
+      "enabled": { "type": "boolean", "default": true, "description": "Enable automatic retries for supported HAI Proxy failures" },
       "proxyHost": { "type": "string", "default": "localhost", "description": "HAI Proxy host (must match hai-proxy-companion if installed)" },
       "proxyPort": { "type": "number", "default": 6655, "description": "HAI Proxy port" }
     }
   },
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "bun test"
   },
   "devDependencies": {
     "@oh-my-pi/pi-coding-agent": "^18.1.14",
