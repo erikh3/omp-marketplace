@@ -213,7 +213,11 @@ function validateHerdrPassthrough(request: WorktreeRequest): void {
 export class HerdrBackend implements WorktreeBackend {
 	readonly id = "herdr";
 
-	constructor(private readonly runner: CommandRunner, private readonly enabled = process.env["HERDR_ENV"] === "1") {}
+	constructor(
+		private readonly runner: CommandRunner,
+		private readonly enabled = process.env["HERDR_ENV"] === "1",
+		private readonly currentWorkspaceId = process.env["HERDR_WORKSPACE_ID"],
+	) {}
 
 	isAvailable(): boolean {
 		return this.enabled;
@@ -269,6 +273,12 @@ export class HerdrBackend implements WorktreeBackend {
 		);
 		const workspace = findWorkspaceId(parseJson(open.stdout, "Herdr returned invalid open JSON"));
 		if (!workspace) throw new WorktreeManagerError("Herdr open result did not report a workspace ID");
+		if (this.currentWorkspaceId && workspace === this.currentWorkspaceId) {
+			throw new WorktreeManagerError(
+				`Refusing to remove worktree: its Herdr workspace (${workspace}) hosts the current agent session. ` +
+					"Removing it would close this pane and kill the running agent. Remove it from a different workspace.",
+			);
+		}
 		await requireSuccess(this.runner, "herdr", ["worktree", "remove", "--workspace", workspace, ...request.worktreeArgs], context, "Cannot remove Herdr worktree");
 	}
 }
