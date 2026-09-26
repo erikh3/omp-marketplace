@@ -170,4 +170,51 @@ describe("WorktreeService", () => {
 		expect(result.path).toBe(path);
 		expect(calls).toEqual([{ command: "herdr", args: ["worktree", "create", "--cwd", root, "--branch", "topic", "--base", "main", "--no-focus"] }]);
 	});
+
+	test("refuses to remove a Herdr worktree hosting the current agent session", async () => {
+		const root = await temporaryRepository();
+		const path = join(root, "herdr-topic");
+		const calls: Array<{ command: string; args: string[] }> = [];
+		const runner = {
+			exec: async (command: string, args: string[]) => {
+				calls.push({ command, args });
+				return {
+					stdout: JSON.stringify({ result: { workspace_id: "w2B" } }),
+					stderr: "",
+					code: 0,
+				};
+			},
+		};
+		const backend = new HerdrBackend(runner, true, "w2B");
+
+		await expect(backend.remove(
+			{ action: "remove", repository: root, path, gitGlobalArgs: [], worktreeArgs: [] },
+			{ repository: root },
+		)).rejects.toBeInstanceOf(WorktreeManagerError);
+		expect(calls.some((call) => call.args[0] === "worktree" && call.args[1] === "remove")).toBeFalse();
+	});
+
+	test("removes a Herdr worktree in a different workspace than the caller", async () => {
+		const root = await temporaryRepository();
+		const path = join(root, "herdr-topic");
+		const calls: Array<{ command: string; args: string[] }> = [];
+		const runner = {
+			exec: async (command: string, args: string[]) => {
+				calls.push({ command, args });
+				return {
+					stdout: JSON.stringify({ result: { workspace_id: "w9Z" } }),
+					stderr: "",
+					code: 0,
+				};
+			},
+		};
+		const backend = new HerdrBackend(runner, true, "w2B");
+
+		await backend.remove(
+			{ action: "remove", repository: root, path, gitGlobalArgs: [], worktreeArgs: [] },
+			{ repository: root },
+		);
+
+		expect(calls.at(-1)?.args).toEqual(["worktree", "remove", "--workspace", "w9Z"]);
+	});
 });
