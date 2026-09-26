@@ -42,7 +42,7 @@ A local source is any path starting with `./`, `~/`, or `/` that contains
 | [`worktree-manager`](plugins/worktree-manager) | Creates, lists, relocates, and removes durable Git worktrees through a backend-owned placement tool. |
 | [`github-comment-guard`](plugins/github-comment-guard) | Blocks replies to human-authored GitHub review comments while allowing bot replies and new top-level comments. |
 | [`hai-proxy-companion`](plugins/hai-proxy-companion) | Shows HAI Proxy spend estimates and context growth below the prompt. Stops omp cleanly with a cap-hit message when HAI returns `DAILY_CAP_EXCEEDED`. |
-| [`hai-jwt-retry`](plugins/hai-jwt-retry) | Retries the current turn when HAI Proxy returns an expired-JWT error. |
+| [`hai-jwt-retry`](plugins/hai-jwt-retry) | Retries the current turn when HAI Proxy returns an expired-JWT or invalid encrypted-content error. |
 
 > **Vim mode is now built into omp.** The `pi-vim` plugin has been retired. Enable it with `tui.vimMode: true` in `~/.omp/agent/config.yml`, or toggle **Vim Editing Mode** under Interaction > Input in `/settings`. See the [keybindings docs](https://github.com/can1357/oh-my-pi/blob/main/docs/keybindings.md#vim-editing-mode) for the full key reference.
 
