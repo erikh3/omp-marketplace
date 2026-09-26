@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtemp, realpath, rm } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, realpath, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -89,6 +89,41 @@ describe("WorktreeService", () => {
 
 		expect(runner.calls.at(-1)?.args).toEqual(["worktree", "remove", source]);
 		expect(await incidents.list(root)).toEqual([]);
+	});
+
+	test("removes symlinks pointing into the main worktree before git worktree remove", async () => {
+		const root = await temporaryRepository();
+		const outside = await mkdtemp(join(tmpdir(), "worktree-manager-outside-"));
+		directories.push(outside);
+		const source = await realpath(outside);
+		// Realistic: graphify-out hook symlinks into main worktree's graphify-out directory
+		const graphifyInMain = join(root, "graphify-out");
+		await mkdir(graphifyInMain);
+		await symlink(graphifyInMain, join(source, "graphify-out"));
+		const runner = runnerFor(root, `worktree ${root}\nbranch refs/heads/main\n\nworktree ${source}\nbranch refs/heads/feature\n`);
+		const service = new WorktreeService(runner, new IncidentStore(join(root, "incidents.json")), new GitBackend(runner));
+
+		await service.execute({ action: "remove", repository: root, path: source, gitGlobalArgs: [], worktreeArgs: [] });
+
+		await expect(lstat(join(source, "graphify-out"))).rejects.toThrow();
+		expect(runner.calls.at(-1)?.args).toEqual(["worktree", "remove", source]);
+	});
+
+	test("does not remove symlinks pointing outside the main worktree", async () => {
+		const root = await temporaryRepository();
+		const outside = await mkdtemp(join(tmpdir(), "worktree-manager-outside-"));
+		directories.push(outside);
+		const source = await realpath(outside);
+		const externalTarget = await mkdtemp(join(tmpdir(), "worktree-manager-external-"));
+		directories.push(externalTarget);
+		await symlink(externalTarget, join(source, "external-link"));
+		const runner = runnerFor(root, `worktree ${root}\nbranch refs/heads/main\n\nworktree ${source}\nbranch refs/heads/feature\n`);
+		const service = new WorktreeService(runner, new IncidentStore(join(root, "incidents.json")), new GitBackend(runner));
+
+		await service.execute({ action: "remove", repository: root, path: source, gitGlobalArgs: [], worktreeArgs: [] });
+
+		// Symlink to unrelated external path must be left intact
+		await expect(lstat(join(source, "external-link"))).resolves.toBeDefined();
 	});
 
 	test("rejects passthrough arguments that replace managed inputs", async () => {
