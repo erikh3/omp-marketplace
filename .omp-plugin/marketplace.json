@@ -70,6 +70,13 @@
       "homepage": "https://github.com/erikh3/omp-marketplace/tree/main/plugins/git-commit-linter"
     },
     {
+      "name": "worktree-manager",
+      "description": "Creates, lists, relocates, and removes durable Git worktrees through a backend-owned placement tool. Direct model Git worktree commands remain non-blocking and receive placement advice when needed.",
+      "source": "./worktree-manager",
+      "category": "development",
+      "homepage": "https://github.com/erikh3/omp-marketplace/tree/main/plugins/worktree-manager"
+    },
+    {
       "name": "github-comment-guard",
       "description": "Blocks the AI agent from replying to human-authored GitHub review comments via MCP tools or gh CLI. Bot-authored replies and new top-level comments remain allowed. Gate is on by default; inspect or change it with /github-comment-gate [on|off].",
       "source": "./github-comment-guard",
