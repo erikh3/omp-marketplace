@@ -1,0 +1,20 @@
+{
+  "name": "herdr-session-agent-name-sync",
+  "version": "0.1.0",
+  "description": "Keeps the current Herdr agent name synchronized with the omp session title.",
+  "private": true,
+  "omp": {
+    "extensions": [
+      "./src/index.ts"
+    ]
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "bun test"
+  },
+  "devDependencies": {
+    "@oh-my-pi/pi-coding-agent": "^18.1.14",
+    "bun-types": "^1.4.2",
+    "typescript": "^7.0.2"
+  }
+}
