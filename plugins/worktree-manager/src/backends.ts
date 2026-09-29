@@ -198,12 +198,12 @@ function findHerdrPath(value: unknown, branch: string): string | undefined {
 	return undefined;
 }
 
-function validateHerdrPassthrough(request: WorktreeRequest): void {
+function validateHerdrPassthrough(request: WorktreeRequest, allowForce = false): void {
 	if (request.gitGlobalArgs.length > 0) {
 		throw new WorktreeManagerError("Herdr backend does not accept Git global arguments");
 	}
 	for (const argument of request.worktreeArgs) {
-		if (argument !== "--trust-repository") {
+		if (argument !== "--trust-repository" && (!allowForce || argument !== "--force")) {
 			throw new WorktreeManagerError(`Herdr backend does not support worktree argument ${argument}`);
 		}
 	}
@@ -263,11 +263,13 @@ export class HerdrBackend implements WorktreeBackend {
 
 	async remove(request: WorktreeRequest, context: BackendContext): Promise<void> {
 		if (!request.path) throw new WorktreeManagerError("remove requires a worktree path");
-		validateHerdrPassthrough(request);
+		validateHerdrPassthrough(request, true);
+		const openArgs = ["worktree", "open", "--cwd", context.repository, "--path", request.path, "--no-focus"];
+		if (request.worktreeArgs.includes("--trust-repository")) openArgs.push("--trust-repository");
 		const open = await requireSuccess(
 			this.runner,
 			"herdr",
-			["worktree", "open", "--cwd", context.repository, "--path", request.path, "--no-focus", ...request.worktreeArgs],
+			openArgs,
 			context,
 			"Cannot resolve Herdr worktree workspace",
 		);
