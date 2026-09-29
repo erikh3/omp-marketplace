@@ -97,7 +97,7 @@ export default function worktreeManager(pi: ExtensionAPI, options: WorktreeManag
 			baseRef: z.string().optional().describe("Required for create"),
 			path: z.string().optional().describe("Existing worktree path required for remove"),
 			gitGlobalArgs: z.array(z.string()).optional().describe("Ordered Git flags placed before worktree"),
-			worktreeArgs: z.array(z.string()).optional().describe("Ordered worktree flags that do not override managed inputs"),
+			worktreeArgs: z.array(z.string()).optional().describe("Ordered Git worktree flags. Herdr supports --trust-repository and remove-only --force"),
 		}),
 		async execute(_toolCallId, params, signal) {
 			try {

@@ -194,7 +194,7 @@ describe("WorktreeService", () => {
 		expect(calls.some((call) => call.args[0] === "worktree" && call.args[1] === "remove")).toBeFalse();
 	});
 
-	test("removes a Herdr worktree in a different workspace than the caller", async () => {
+	test("forwards Herdr remove arguments after resolving the workspace", async () => {
 		const root = await temporaryRepository();
 		const path = join(root, "herdr-topic");
 		const calls: Array<{ command: string; args: string[] }> = [];
@@ -211,10 +211,13 @@ describe("WorktreeService", () => {
 		const backend = new HerdrBackend(runner, true, "w2B");
 
 		await backend.remove(
-			{ action: "remove", repository: root, path, gitGlobalArgs: [], worktreeArgs: [] },
+			{ action: "remove", repository: root, path, gitGlobalArgs: [], worktreeArgs: ["--force", "--trust-repository"] },
 			{ repository: root },
 		);
 
-		expect(calls.at(-1)?.args).toEqual(["worktree", "remove", "--workspace", "w9Z"]);
+		expect(calls).toEqual([
+			{ command: "herdr", args: ["worktree", "open", "--cwd", root, "--path", path, "--no-focus", "--trust-repository"] },
+			{ command: "herdr", args: ["worktree", "remove", "--workspace", "w9Z", "--force", "--trust-repository"] },
+		]);
 	});
 });

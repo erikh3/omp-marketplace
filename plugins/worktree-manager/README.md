@@ -17,6 +17,8 @@ Every backend manages Git worktrees. Backend selection is automatic:
 
 The Git backend accepts ordered `gitGlobalArgs` and `worktreeArgs`. It keeps supported flags in their original command positions. It rejects only values that would replace the repository, operation, branch, base ref, or managed destination.
 
+The Herdr backend maps `--trust-repository` to its create and remove commands. For remove, it also maps `--force` to `herdr worktree remove`; it does not pass `--force` to the preceding workspace lookup.
+
 `list` returns concise locations for non-main, non-prunable worktrees. `remove` accepts any linked worktree in the repository, except the main worktree. Remove an incorrectly placed worktree, then create it through the tool again.
 
 ## Direct Git commands
