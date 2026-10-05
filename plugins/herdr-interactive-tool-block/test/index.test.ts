@@ -55,12 +55,16 @@ async function boot(handlers: Map<string, Handler>, ctx: ExtensionContext) {
 	await fire(handlers, "session_start", { type: "session_start" }, ctx);
 }
 
-function start(toolCallId: string, toolName: string, intent?: string) {
-	return { type: "tool_execution_start", toolCallId, toolName, args: {}, intent };
+function call(toolCallId: string, toolName: string, intent?: string) {
+	return { type: "tool_call", toolCallId, toolName, input: intent === undefined ? {} : { intent } };
 }
 
-function end(toolCallId: string, toolName: string, isError = false) {
-	return { type: "tool_execution_end", toolCallId, toolName, result: {}, isError };
+function result(toolCallId: string, toolName: string, isError = false) {
+	return { type: "tool_result", toolCallId, toolName, input: {}, content: [], isError };
+}
+
+function bashCall(toolCallId: string, command: string) {
+	return { type: "tool_call", toolCallId, toolName: "bash", input: { command } };
 }
 
 beforeEach(() => {
@@ -77,8 +81,8 @@ describe("wiring", () => {
 		const { handlers, events } = makeHarness();
 		const ctx = makeContext("main");
 		await boot(handlers, ctx);
-		fire(handlers, "tool_execution_start", start("call-1", "mcp__browser_tools_click", "Clicking link"), ctx);
-		fire(handlers, "tool_execution_end", end("call-1", "mcp__browser_tools_click"), ctx);
+		fire(handlers, "tool_call", call("call-1", "mcp__browser_tools_click", "Clicking link"), ctx);
+		fire(handlers, "tool_result", result("call-1", "mcp__browser_tools_click"), ctx);
 		expect(events).toEqual([
 			{ active: true, label: "Clicking link" },
 			{ active: false, label: undefined },
@@ -89,8 +93,8 @@ describe("wiring", () => {
 		const { handlers, events } = makeHarness();
 		const ctx = makeContext("main");
 		await boot(handlers, ctx);
-		fire(handlers, "tool_execution_start", { type: "tool_execution_start", toolCallId: "d1", toolName: "bash", args: { command: "difit HEAD~1" } }, ctx);
-		fire(handlers, "tool_execution_start", { type: "tool_execution_start", toolCallId: "p1", toolName: "bash", args: { command: "plannotator review ." } }, ctx);
+		fire(handlers, "tool_call", bashCall("d1", "difit HEAD~1"), ctx);
+		fire(handlers, "tool_call", bashCall("p1", "plannotator review ."), ctx);
 		expect(events).toEqual([
 			{ active: true, label: "difit review" },
 			{ active: true, label: "plannotator review" },
@@ -101,8 +105,8 @@ describe("wiring", () => {
 		const { handlers, events } = makeHarness();
 		const ctx = makeContext("sub");
 		await boot(handlers, ctx);
-		fire(handlers, "tool_execution_start", start("call-1", "mcp__browser_tools_click"), ctx);
-		fire(handlers, "tool_execution_end", end("call-1", "mcp__browser_tools_click"), ctx);
+		fire(handlers, "tool_call", call("call-1", "mcp__browser_tools_click"), ctx);
+		fire(handlers, "tool_result", result("call-1", "mcp__browser_tools_click"), ctx);
 		expect(events).toEqual([]);
 	});
 
@@ -110,7 +114,7 @@ describe("wiring", () => {
 		const { handlers, events } = makeHarness();
 		const ctx = makeContext("main");
 		await boot(handlers, ctx);
-		fire(handlers, "tool_execution_start", start("call-1", "mcp__browser_tools_click"), ctx);
+		fire(handlers, "tool_call", call("call-1", "mcp__browser_tools_click"), ctx);
 		fire(handlers, "session_shutdown", { type: "session_shutdown" }, ctx);
 		expect(events).toHaveLength(2);
 		expect(events[1]?.active).toBe(false);
@@ -120,8 +124,8 @@ describe("wiring", () => {
 		const { handlers, events } = makeHarness();
 		const ctx = makeContext("main");
 		await boot(handlers, ctx);
-		fire(handlers, "tool_execution_start", start("call-1", "mcp__browser_tools_click", "Clicking"), ctx);
-		fire(handlers, "tool_execution_end", end("call-1", "mcp__browser_tools_click", true), ctx);
+		fire(handlers, "tool_call", call("call-1", "mcp__browser_tools_click", "Clicking"), ctx);
+		fire(handlers, "tool_result", result("call-1", "mcp__browser_tools_click", true), ctx);
 		expect(events).toEqual([
 			{ active: true, label: "Clicking" },
 			{ active: false, label: undefined },

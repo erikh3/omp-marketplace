@@ -1,6 +1,6 @@
 {
   "name": "herdr-interactive-tool-block",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Reports the Herdr pane as blocked while a rule says the agent is waiting on the user mid-execution. Modular rules cover browser-tools interactive calls, difit reviews, and Plannotator reviews.",
   "private": true,
   "omp": {

@@ -1,4 +1,4 @@
-import type { ExtensionAPI, ExtensionContext, ToolExecutionEndEvent, ToolExecutionStartEvent } from "@oh-my-pi/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext, ToolCallEvent, ToolResultEvent } from "@oh-my-pi/pi-coding-agent";
 
 import { DEFAULT_CONFIG, loadConfig, PLUGIN_NAME, type BlockConfig } from "./config.ts";
 import { BlockEngine } from "./engine.ts";
@@ -15,10 +15,15 @@ const HERDR_BLOCKED_CHANNEL = "herdr:blocked";
 /**
  * Reports the Herdr pane as blocked while a configured rule says the agent is
  * waiting on the user mid-execution. Rules are modular (see `src/rules`): the
- * built-ins cover interactive MCP tools (browser-tools click/input_text/pick),
- * difit review waits, and Plannotator review waits. Each rule classifies starting
- * tool calls; a shared engine owns the block lifecycle and emits `herdr:blocked`
- * on the bus, which the Herdr-managed omp integration ref-counts into pane state.
+ * built-ins cover interactive browser-tools MCP calls, difit review waits, and
+ * Plannotator review waits. Each rule classifies starting tool calls; a shared
+ * engine owns the block lifecycle and emits `herdr:blocked` on the bus, which the
+ * Herdr-managed omp integration ref-counts into pane state.
+ *
+ * Lifecycle hooks are `tool_call` (pre-execution) and `tool_result` (post), NOT
+ * `tool_execution_start`/`end`: only the former pair fires for MCP tool calls like
+ * browser-tools, which are the main case this plugin exists for. The execution
+ * events fire for native tools only, so they could never see a browser-tools wait.
  */
 export default function herdrInteractiveToolBlock(pi: ExtensionAPI): void {
 	if (process.env.HERDR_ENV !== "1") return;
@@ -57,12 +62,13 @@ export default function herdrInteractiveToolBlock(pi: ExtensionAPI): void {
 		await rebuildEngine();
 	});
 
-	pi.on("tool_execution_start", (event: ToolExecutionStartEvent, ctx) => {
+	pi.on("tool_call", (event: ToolCallEvent, ctx) => {
 		if (!activate(ctx)) return;
-		engine?.onToolStart(event);
+		const intent = "intent" in event.input && typeof event.input.intent === "string" ? event.input.intent : undefined;
+		engine?.onToolStart({ toolCallId: event.toolCallId, toolName: event.toolName, args: event.input, intent });
 	});
 
-	pi.on("tool_execution_end", (event: ToolExecutionEndEvent) => {
+	pi.on("tool_result", (event: ToolResultEvent) => {
 		engine?.onToolEnd(event.toolCallId);
 	});
 
