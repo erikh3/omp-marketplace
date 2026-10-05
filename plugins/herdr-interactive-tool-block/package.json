@@ -1,15 +1,16 @@
 {
   "name": "herdr-interactive-tool-block",
-  "version": "0.1.0",
-  "description": "Reports the Herdr pane as blocked while an interactive tool (such as browser-tools click or input_text) waits for user input mid-execution.",
+  "version": "0.2.0",
+  "description": "Reports the Herdr pane as blocked while a rule says the agent is waiting on the user mid-execution. Modular rules cover interactive MCP tools (browser-tools click/input_text/pick), difit reviews, and Plannotator reviews.",
   "private": true,
   "omp": {
     "extensions": [
       "./src/index.ts"
     ],
     "settings": {
-      "enabled": { "type": "boolean", "default": true, "description": "Flip the Herdr pane to blocked while a matching tool waits for input" },
-      "tools": { "type": "array", "default": ["browser_tools_click", "browser_tools_input_text", "browser_tools_pick"], "description": "Substrings matched against tool names; a matching tool is treated as blocking mid-execution" }
+      "enabled": { "type": "boolean", "default": true, "description": "Flip the Herdr pane to blocked while a rule reports the agent is waiting on the user" },
+      "rules": { "type": "object", "default": { "interactive-tools": true, "difit": true, "plannotator": true }, "description": "Per-rule enablement. Set a rule id to false to disable it." },
+      "tools": { "type": "array", "default": ["browser_tools_click", "browser_tools_input_text", "browser_tools_pick"], "description": "Tool-name substrings for the interactive-tools rule; a matching tool is treated as blocking mid-execution" }
     }
   },
   "scripts": {

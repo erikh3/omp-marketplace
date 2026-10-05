@@ -1,32 +1,61 @@
 # herdr-interactive-tool-block
 
-Report the Herdr pane as **blocked** while an interactive tool waits for user input in the middle of its own execution.
+Report the Herdr pane as **blocked** while a rule says the agent is waiting on the user mid-execution, instead of leaving it stuck in `working`.
 
 ## The problem
 
-omp approves a tool at its own approval gate and then runs it. Some MCP tools, notably `browser-tools` `click`, `input_text`, and `pick`, block *inside the MCP server* after that, waiting for the user to confirm the action in Chrome. omp still sees the tool executing, so the Herdr-managed omp integration keeps the pane in the `working` state even though it is really waiting for the user.
+omp approves a tool at its own approval gate and then runs it. Some tools then wait on the user from inside their own execution: a browser-tools `click` blocks in the MCP server waiting for a Chrome confirmation, a difit or Plannotator review waits for the human to finish reviewing. omp still sees the tool executing, so the Herdr-managed omp integration keeps the pane in `working`.
 
-The managed integration (`~/.omp/agent/extensions/herdr-omp-agent-state.ts`) only treats omp's own approval gate and the `ask` tool as blocking. Mid-execution MCP waits slip through.
+The managed integration (`~/.omp/agent/extensions/herdr-omp-agent-state.ts`) only treats omp's own approval gate and the `ask` tool as blocking. These mid-execution waits slip through.
 
-## Behavior
+## How it works
+
+The plugin runs a set of **rules**. Each rule inspects every starting tool call and either returns a label (block the pane for this call) or ignores it. A shared engine owns the lifecycle: it opens at most one block per `toolCallId`, emits `herdr:blocked` `{ active, label }` on the shared `pi.events` bus when a block opens, and emits `{ active: false }` when the call ends. The Herdr-managed omp integration ref-counts those events into the pane state. This plugin cooperates with that ref-count rather than reporting to Herdr directly.
 
 - Runs only inside a Herdr-managed pane (`HERDR_ENV=1`).
 - Watches the main omp session only. Subagents cannot change the pane state.
-- When a configured tool starts, emits `herdr:blocked` `{ active: true, label }` on the shared `pi.events` bus. When it ends, emits `{ active: false }`.
-- The Herdr-managed omp integration ref-counts those events and flips the pane to `blocked` while any block is outstanding, then back to `working`/`idle` when they clear. This plugin cooperates with that ref-count rather than reporting state to Herdr directly.
 - Tracks each tool call by id, so overlapping or interleaved calls each open and close their own block.
-- Clears any still-open block on session shutdown, so a crash mid-approval does not strand the pane in `blocked`.
+- Clears any still-open block on session shutdown, so a crash mid-wait does not strand the pane in `blocked`.
 
-The block label is the tool call's intent when present (for example `Clicking Le Corbusier link`), otherwise a tidied tool name.
+## Built-in rules
+
+| Rule id | Blocks when | Label |
+| --- | --- | --- |
+| `interactive-tools` | A tool whose name matches a configured substring starts (default browser-tools `click`, `input_text`, `pick`). | Tool call intent, else a tidied tool name. |
+| `difit` | A `hub(op="wait", name="difit")` call starts. | `difit review` |
+| `plannotator` | A `plannotator review` or gated `plannotator annotate` bash command starts, or a `hub` wait for a session started with `application=plannotator` (or any `plannotator`-prefixed name). | `plannotator review` |
+
+The `difit` and `plannotator` rules were previously separate loose extensions in `~/.omp/agent/extensions/`. They now live here as modules.
+
+## Adding a rule
+
+Add a module under `src/rules/` that exports a factory returning a `BlockRule`:
+
+```typescript
+import type { BlockRule } from "./types.ts";
+
+export function myRule(): BlockRule {
+	return {
+		id: "my-rule",
+		onToolStart(event) {
+			// return a label to block, or undefined to ignore.
+			return event.toolName === "mcp__my_tool" ? "my tool waiting" : undefined;
+		},
+	};
+}
+```
+
+Then register it in `src/rules/index.ts` (add the id to `RULE_FACTORIES`) and in `src/config.ts` (add the id to `RULE_IDS` and the default `rules` map). A rule may keep private state across calls, for example to correlate a later `hub` wait with an earlier start, as the `plannotator` rule does.
 
 ## Configuration
 
 | Setting | Type | Default | Description |
 | --- | --- | --- | --- |
-| `enabled` | boolean | `true` | Flip the pane to blocked while a matching tool waits. |
-| `tools` | array | `["browser_tools_click", "browser_tools_input_text", "browser_tools_pick"]` | Case-insensitive substrings matched against the tool name. A tool whose name contains any entry is treated as blocking mid-execution. |
+| `enabled` | boolean | `true` | Master switch. When off, no block is reported. |
+| `rules` | object | `{ "interactive-tools": true, "difit": true, "plannotator": true }` | Per-rule enablement. Set a rule id to `false` to disable it. |
+| `tools` | array | `["browser_tools_click", "browser_tools_input_text", "browser_tools_pick"]` | Case-insensitive substrings for the `interactive-tools` rule. |
 
-Patterns are matched as substrings, so `browser_tools_click` matches both `mcp__browser_tools_click` and the longer `mcp__browser_tools_chrome_browser_tools_click` form produced by some MCP mounts.
+Tool patterns match as substrings, so `browser_tools_click` matches both `mcp__browser_tools_click` and the longer `mcp__browser_tools_chrome_browser_tools_click` form produced by some MCP mounts.
 
 ## Install
 
@@ -45,7 +74,7 @@ bun run typecheck
 omp plugin link ./plugins/herdr-interactive-tool-block
 ```
 
-Restart omp after linking. Then, inside a Herdr pane, trigger a `browser-tools` `click` and confirm the pane shows `blocked` while the approval dialog is open:
+Restart omp after linking. Then, inside a Herdr pane, trigger a `browser-tools` `click` (or a difit / Plannotator review) and confirm the pane shows `blocked` while it waits:
 
 ```bash
 herdr agent get <this-agent>
