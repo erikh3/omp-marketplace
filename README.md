@@ -34,6 +34,7 @@ A local source is any path starting with `./`, `~/`, or `/` that contains
 | --- | --- |
 | [`plugins-bin-to-path`](plugins/plugins-bin-to-path) | Puts each enabled omp plugin's `bin/` directory on the Bash tool PATH, so bundled executables run by bare name under omp. |
 | [`herdr-session-agent-name-sync`](plugins/herdr-session-agent-name-sync) | Keeps the current Herdr agent name synchronized with the omp session title. |
+| [`herdr-interactive-tool-block`](plugins/herdr-interactive-tool-block) | Reports the Herdr pane as blocked while an interactive tool (such as browser-tools `click` or `input_text`) waits for user input mid-execution, instead of leaving it stuck in `working`. |
 | [`session-autoname`](plugins/session-autoname) | Auto-name the session from its logs via the smol model when `/name` or `/rename` is issued without a title. |
 | [`obsidian-welcome`](plugins/obsidian-welcome) | Shows an animated Obsidian welcome widget only when omp runs inside an Obsidian vault. Includes daily-note status and recent notes. |
 | [`context-injector`](plugins/context-injector) | Inject skills and arbitrary file contents into the LLM context at agent-start time. Supports `skill://` URIs, filesystem paths, and globs. |

@@ -32,6 +32,13 @@
       "homepage": "https://github.com/erikh3/omp-marketplace/tree/main/plugins/obsidian-welcome"
     },
     {
+      "name": "herdr-interactive-tool-block",
+      "description": "Reports the Herdr pane as blocked while an interactive tool (such as browser-tools click or input_text) waits for user input mid-execution, instead of leaving it stuck in the working state.",
+      "source": "./herdr-interactive-tool-block",
+      "category": "productivity",
+      "homepage": "https://github.com/erikh3/omp-marketplace/tree/main/plugins/herdr-interactive-tool-block"
+    },
+    {
       "name": "omp-permission-guard",
       "description": "Classifier-based tool-approval gate (heuristic / guardian / hybrid) for the oh-my-pi coding agent. Vendored from hank-warren, pinned to a reviewed commit in erikh3's fork.",
       "source": {
