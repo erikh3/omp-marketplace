@@ -1,0 +1,25 @@
+{
+  "name": "herdr-interactive-tool-block",
+  "version": "0.4.0",
+  "description": "Reports the Herdr pane as blocked while a rule says the agent is waiting on the user mid-execution. Modular rules cover browser-tools interactive calls, difit reviews, and Plannotator reviews.",
+  "private": true,
+  "omp": {
+    "extensions": [
+      "./src/index.ts"
+    ],
+    "settings": {
+      "enabled": { "type": "boolean", "default": true, "description": "Flip the Herdr pane to blocked while a rule reports the agent is waiting on the user" },
+      "rules": { "type": "object", "default": { "browser-tools": true, "difit": true, "plannotator": true }, "description": "Per-rule enablement. Set a rule id to false to disable it." },
+      "browserToolsOps": { "type": "array", "default": ["click", "input_text", "pick"], "description": "Interactive browser-tools op names for the browser-tools rule; a matching call is treated as blocking mid-execution" }
+    }
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "bun test"
+  },
+  "devDependencies": {
+    "@oh-my-pi/pi-coding-agent": "^18.1.14",
+    "bun-types": "^1.4.2",
+    "typescript": "^7.0.2"
+  }
+}
