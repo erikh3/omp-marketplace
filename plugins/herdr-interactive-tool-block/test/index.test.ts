@@ -74,7 +74,7 @@ describe("wiring", () => {
 	test("blocks on a difit wait and a plannotator review, which ship enabled by default", () => {
 		const { handlers, events } = makeHarness();
 		const ctx = makeContext("main");
-		fire(handlers, "tool_execution_start", { type: "tool_execution_start", toolCallId: "d1", toolName: "hub", args: { op: "wait", name: "difit" } }, ctx);
+		fire(handlers, "tool_execution_start", { type: "tool_execution_start", toolCallId: "d1", toolName: "bash", args: { command: "difit HEAD~1" } }, ctx);
 		fire(handlers, "tool_execution_start", { type: "tool_execution_start", toolCallId: "p1", toolName: "bash", args: { command: "plannotator review ." } }, ctx);
 		expect(events).toEqual([
 			{ active: true, label: "difit review" },
@@ -97,6 +97,17 @@ describe("wiring", () => {
 		fire(handlers, "session_shutdown", { type: "session_shutdown" }, ctx);
 		expect(events).toHaveLength(2);
 		expect(events[1]?.active).toBe(false);
+	});
+
+	test("clears the block when a matched tool call ends in error", () => {
+		const { handlers, events } = makeHarness();
+		const ctx = makeContext("main");
+		fire(handlers, "tool_execution_start", start("call-1", "mcp__browser_tools_click", "Clicking"), ctx);
+		fire(handlers, "tool_execution_end", { type: "tool_execution_end", toolCallId: "call-1", toolName: "mcp__browser_tools_click", result: {}, isError: true }, ctx);
+		expect(events).toEqual([
+			{ active: true, label: "Clicking" },
+			{ active: false, label: undefined },
+		]);
 	});
 
 	test("registers no handlers when HERDR_ENV is unset", () => {

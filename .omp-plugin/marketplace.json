@@ -33,7 +33,7 @@
     },
     {
       "name": "herdr-interactive-tool-block",
-      "description": "Reports the Herdr pane as blocked while a rule says the agent is waiting on the user mid-execution, instead of leaving it stuck in working. Modular rules cover interactive MCP tools (browser-tools click/input_text/pick), difit reviews, and Plannotator reviews.",
+      "description": "Reports the Herdr pane as blocked while a rule says the agent is waiting on the user mid-execution, instead of leaving it stuck in working. Modular rules; a new rule is a single file.",
       "source": "./herdr-interactive-tool-block",
       "category": "productivity",
       "homepage": "https://github.com/erikh3/omp-marketplace/tree/main/plugins/herdr-interactive-tool-block"

@@ -21,15 +21,17 @@ The plugin runs a set of **rules**. Each rule inspects every starting tool call 
 
 | Rule id | Blocks when | Label |
 | --- | --- | --- |
-| `interactive-tools` | A tool whose name matches a configured substring starts (default browser-tools `click`, `input_text`, `pick`). | Tool call intent, else a tidied tool name. |
-| `difit` | A `hub(op="wait", name="difit")` call starts. | `difit review` |
+| `browser-tools` | An interactive browser-tools call starts (default ops `click`, `input_text`, `pick`). Matches the `browser_tools_` MCP segment under either mount name form. | Tool call intent, else a tidied tool name. |
+| `difit` | A `difit` or `npx difit` launch bash command starts, or the legacy `hub(op="wait", name="difit")` call. | `difit review` |
 | `plannotator` | A `plannotator review` or gated `plannotator annotate` bash command starts, or a `hub` wait for a session started with `application=plannotator` (or any `plannotator`-prefixed name). | `plannotator review` |
 
 The `difit` and `plannotator` rules were previously separate loose extensions in `~/.omp/agent/extensions/`. They now live here as modules.
 
 ## Adding a rule
 
-Add a module under `src/rules/` that exports a factory returning a `BlockRule`:
+One rule is one file. Keep each rule to a single concern; split mixed concerns into separate rule files.
+
+1. Add a module under `src/rules/` that exports a factory returning a `BlockRule`:
 
 ```typescript
 import type { BlockRule } from "./types.ts";
@@ -45,17 +47,19 @@ export function myRule(): BlockRule {
 }
 ```
 
-Then register it in `src/rules/index.ts` (add the id to `RULE_FACTORIES`) and in `src/config.ts` (add the id to `RULE_IDS` and the default `rules` map). A rule may keep private state across calls, for example to correlate a later `hub` wait with an earlier start, as the `plannotator` rule does.
+2. Add one entry to `RULE_FACTORIES` in `src/rules/index.ts`. That is the only wiring step: `RULE_IDS`, the config toggle, and the default enablement all derive from this map. A rule that reads settings takes the resolved `BlockConfig` as its factory argument (as `browser-tools` does); one that needs none ignores it.
+
+A rule may keep private state across calls, for example to correlate a later `hub` wait with an earlier start, as the `plannotator` rule does.
 
 ## Configuration
 
 | Setting | Type | Default | Description |
 | --- | --- | --- | --- |
 | `enabled` | boolean | `true` | Master switch. When off, no block is reported. |
-| `rules` | object | `{ "interactive-tools": true, "difit": true, "plannotator": true }` | Per-rule enablement. Set a rule id to `false` to disable it. |
-| `tools` | array | `["browser_tools_click", "browser_tools_input_text", "browser_tools_pick"]` | Case-insensitive substrings for the `interactive-tools` rule. |
+| `rules` | object | `{ "browser-tools": true, "difit": true, "plannotator": true }` | Per-rule enablement. Set a rule id to `false` to disable it. |
+| `browserToolsOps` | array | `["click", "input_text", "pick"]` | Interactive browser-tools op names for the `browser-tools` rule. |
 
-Tool patterns match as substrings, so `browser_tools_click` matches both `mcp__browser_tools_click` and the longer `mcp__browser_tools_chrome_browser_tools_click` form produced by some MCP mounts.
+The `browser-tools` rule matches the `browser_tools_` MCP segment plus an op name, so `click` matches both `mcp__browser_tools_click` and the longer `mcp__browser_tools_chrome_browser_tools_click` form produced by some MCP mounts.
 
 ## Install
 

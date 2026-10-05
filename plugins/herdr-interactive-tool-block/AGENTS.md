@@ -15,7 +15,7 @@ Emits `herdr:blocked` `{ active, label }` on the shared `pi.events` bus so the H
 | `src/config.ts` | Settings load and defaults. `RULE_IDS`, `BlockConfig`, per-rule toggles, pattern parsing. |
 | `src/rules/types.ts` | `BlockRule` and `ToolStartInfo` contracts, shared `isObject` guard. |
 | `src/rules/index.ts` | `RULE_FACTORIES` registry and `buildRules(config)`. |
-| `src/rules/{interactive-tools,difit,plannotator}.ts` | One rule each. Pure classification, no bus or omp access. |
+| `src/rules/{browser-tools,difit,plannotator}.ts` | One rule each. Pure classification, no bus or omp access. |
 
 Dependency direction: `index` -> `engine` + `config` + `rules/index` -> individual rules -> `types`. Keep it acyclic. Rules must not import `index`, `engine`, or `pi.*`.
 
@@ -30,13 +30,16 @@ Dependency direction: `index` -> `engine` + `config` + `rules/index` -> individu
 
 ## Adding or changing a rule
 
-1. Add `src/rules/<id>.ts` exporting a factory `(): BlockRule` (or `(config) => BlockRule` if it needs settings).
-2. Register the id in `RULE_FACTORIES` (`src/rules/index.ts`) and in `RULE_IDS` plus the default `rules` map (`src/config.ts`).
-3. Add a rule-module test under `test/rules/<id>.test.ts` that calls `onToolStart` directly with representative and non-matching events. Also assert any per-instance state does not leak across instances.
-4. Update `README.md` built-in rules table and `package.json` `omp.settings.rules` default.
-5. Bump `package.json` version (minor for a new rule, per `.agents/references/marketplace-conventions.md`).
+One rule is one file, one concern. Split mixed concerns into separate rule files.
 
-The `difit` and `plannotator` rules were ported from standalone extensions in `~/.omp/agent/extensions/`. Preserve their matching logic exactly (the `plannotator` command regex and hub-session correlation) when touching them.
+1. Add `src/rules/<id>.ts` exporting a factory `(): BlockRule` (or `(config) => BlockRule` if it needs settings).
+2. Add one entry to `RULE_FACTORIES` in `src/rules/index.ts`. This is the only wiring step: `RuleId`, `RULE_IDS`, the default `rules` toggles, and load order all derive from that map. Do not maintain a separate id list.
+3. If the rule needs a setting, add a field to `BlockConfig` and parse it in `loadConfig` (`src/config.ts`), plus the matching `omp.settings` entry in `package.json`.
+4. Add a rule-module test under `test/rules/<id>.test.ts` that calls `onToolStart` directly with representative and non-matching events. Assert any per-instance state does not leak across instances.
+5. Update the `README.md` built-in rules table and, when a toggle default changes, `package.json` `omp.settings.rules`.
+6. Bump `package.json` version (minor for a new rule, per `.agents/references/marketplace-conventions.md`).
+
+The `difit` and `plannotator` rules were ported from standalone extensions in `~/.omp/agent/extensions/`. `difit` now also matches a `difit`/`npx difit` launch bash command, since difit no longer routes through a `hub` session in current setups; the `hub` wait match is kept as a fallback. Preserve the `plannotator` command regex and hub-session correlation when touching that rule.
 
 ## Verification contract
 
@@ -60,4 +63,4 @@ Unit tests cover rule classification, engine lifecycle (bracketing, overlap, fir
 - `pi.events` is one shared bus per session, injected into every extension. The channel name `herdr:blocked` and payload shape `{ active, label }` are a contract with the managed integration. Do not rename or restructure them without changing that integration too.
 - The managed integration special-cases omp's own approval gate and the `ask` tool. This plugin covers the gap for tools that wait from inside their own execution. Do not add rules for the `ask` tool or omp's gate; they would double-count.
 - Config loads asynchronously. `index.ts` builds the engine eagerly from `DEFAULT_CONFIG`, then rebuilds on `session_start` once settings resolve, so blocks still work before the first config load completes.
-- Tool names vary by MCP mount: `mcp__browser_tools_click` and `mcp__browser_tools_chrome_browser_tools_click` are the same tool. The `interactive-tools` rule matches substrings for this reason.
+- Tool names vary by MCP mount: `mcp__browser_tools_click` and `mcp__browser_tools_chrome_browser_tools_click` are the same tool. The `browser-tools` rule matches the `browser_tools_` segment plus an op name for this reason.
