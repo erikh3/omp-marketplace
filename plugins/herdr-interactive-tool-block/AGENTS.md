@@ -12,12 +12,12 @@ Emits `herdr:blocked` `{ active, label }` on the shared `pi.events` bus so the H
 | --- | --- |
 | `src/index.ts` | Extension factory. Env + main-session guards, config load, wires events to the engine. The only file that touches `pi.*`. |
 | `src/engine.ts` | `BlockEngine`. Owns block lifecycle: runs rules on each start, one block per `toolCallId`, emits signals, clears on shutdown. No omp or Herdr knowledge. |
-| `src/config.ts` | Settings load and defaults. `RULE_IDS`, `BlockConfig`, per-rule toggles, pattern parsing. |
+| `src/config.ts` | Settings load and defaults. `BlockConfig`, sparse per-rule toggles, op-list parsing. Rule-agnostic: holds no rule id list. |
 | `src/rules/types.ts` | `BlockRule` and `ToolStartInfo` contracts, shared `isObject` guard. |
-| `src/rules/index.ts` | `RULE_FACTORIES` registry and `buildRules(config)`. |
-| `src/rules/{browser-tools,difit,plannotator}.ts` | One rule each. Pure classification, no bus or omp access. |
+| `src/rules/index.ts` | Rule loader: `discoverRuleFactories` (glob + dynamic import), `instantiateRules` (pure), `buildRules`. `RuleFactory` type. |
+| `src/rules/{browser-tools,difit,plannotator}.ts` | One rule each. Pure classification, no bus or omp access. Each default-exports a `RuleFactory`. |
 
-Dependency direction: `index` -> `engine` + `config` + `rules/index` -> individual rules -> `types`. Keep it acyclic. Rules must not import `index`, `engine`, or `pi.*`.
+Dependency direction: `index` -> `engine` + `config` + `rules/index`; rule files -> `config` (type-only) + `types`. Keep it acyclic. Rules must not import `index`, `engine`, or `pi.*`. `rules/index.ts` imports rule files only dynamically (discovery), never statically.
 
 ## Invariants (do not break)
 
@@ -27,17 +27,19 @@ Dependency direction: `index` -> `engine` + `config` + `rules/index` -> individu
 4. **Main session only.** Subagents must not change pane state. The `agent.kind === "main"` guard in `index.ts` enforces this; keep it.
 5. **Rules are pure classifiers.** `onToolStart` returns a label or `undefined`. It may hold private per-instance state but must have no external side effects (no I/O, no bus emit).
 6. **Inert outside Herdr.** `index.ts` returns early unless `HERDR_ENV=1`.
+7. **Rule discovery is isolated.** `discoverRuleFactories` and `instantiateRules` skip a malformed or throwing rule file with a warning instead of failing the extension. One bad rule must never disable the others or crash load.
 
 ## Adding or changing a rule
 
 One rule is one file, one concern. Split mixed concerns into separate rule files.
 
-1. Add `src/rules/<id>.ts` exporting a factory `(): BlockRule` (or `(config) => BlockRule` if it needs settings).
-2. Add one entry to `RULE_FACTORIES` in `src/rules/index.ts`. This is the only wiring step: `RuleId`, `RULE_IDS`, the default `rules` toggles, and load order all derive from that map. Do not maintain a separate id list.
-3. If the rule needs a setting, add a field to `BlockConfig` and parse it in `loadConfig` (`src/config.ts`), plus the matching `omp.settings` entry in `package.json`.
-4. Add a rule-module test under `test/rules/<id>.test.ts` that calls `onToolStart` directly with representative and non-matching events. Assert any per-instance state does not leak across instances.
-5. Update the `README.md` built-in rules table and, when a toggle default changes, `package.json` `omp.settings.rules`.
-6. Bump `package.json` version (minor for a new rule, per `.agents/references/marketplace-conventions.md`).
+1. Add `src/rules/<id>.ts` that **default-exports** a `RuleFactory` (`(config) => BlockRule`; ignore the argument if the rule needs no config). The returned rule carries its own `id`. Discovery picks it up automatically; there is no registry to edit.
+2. If the rule needs a setting, add a field to `BlockConfig` and parse it in `loadConfig` (`src/config.ts`), plus the matching `omp.settings` entry in `package.json`. Do not add the rule id anywhere; enablement is implicit (on unless `rules.<id>` is `false`).
+3. Add a rule-module test under `test/rules/<id>.test.ts` that calls the factory's rule `onToolStart` directly with representative and non-matching events. Assert any per-instance state does not leak across instances.
+4. Update the `README.md` built-in rules table and, when a default changes, `package.json` `omp.settings`.
+5. Bump `package.json` version (minor for a new rule, per `.agents/references/marketplace-conventions.md`).
+
+Discovery runs once per process (`discoverRuleFactories`), then `index.ts` re-instantiates from the cached factories on each `session_start`. Do not reintroduce a hardcoded factory map; that was removed on purpose so a new rule is a single file.
 
 The `difit` and `plannotator` rules were ported from standalone extensions in `~/.omp/agent/extensions/`. `difit` now also matches a `difit`/`npx difit` launch bash command, since difit no longer routes through a `hub` session in current setups; the `hub` wait match is kept as a fallback. Preserve the `plannotator` command regex and hub-session correlation when touching that rule.
 
@@ -62,5 +64,5 @@ Unit tests cover rule classification, engine lifecycle (bracketing, overlap, fir
 
 - `pi.events` is one shared bus per session, injected into every extension. The channel name `herdr:blocked` and payload shape `{ active, label }` are a contract with the managed integration. Do not rename or restructure them without changing that integration too.
 - The managed integration special-cases omp's own approval gate and the `ask` tool. This plugin covers the gap for tools that wait from inside their own execution. Do not add rules for the `ask` tool or omp's gate; they would double-count.
-- Config loads asynchronously. `index.ts` builds the engine eagerly from `DEFAULT_CONFIG`, then rebuilds on `session_start` once settings resolve, so blocks still work before the first config load completes.
+- Rules are discovered on disk via `Bun.Glob` + dynamic `import()` relative to `import.meta.dir`, which works because omp loads the extension from its real source file, not a flat bundle. Discovery is async, so engine construction is async: `index.ts` caches the discovered factories once, starts with no engine, and builds it on the first `rebuildEngine()` (a few ms at load) and again per `session_start` once settings resolve.
 - Tool names vary by MCP mount: `mcp__browser_tools_click` and `mcp__browser_tools_chrome_browser_tools_click` are the same tool. The `browser-tools` rule matches the `browser_tools_` segment plus an op name for this reason.

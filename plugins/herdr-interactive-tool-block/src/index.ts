@@ -2,7 +2,7 @@ import type { ExtensionAPI, ExtensionContext, ToolExecutionEndEvent, ToolExecuti
 
 import { DEFAULT_CONFIG, loadConfig, PLUGIN_NAME, type BlockConfig } from "./config.ts";
 import { BlockEngine } from "./engine.ts";
-import { buildRules } from "./rules/index.ts";
+import { discoverRuleFactories, instantiateRules, type RuleFactory } from "./rules/index.ts";
 
 /**
  * Shared `pi.events` channel the Herdr-managed omp integration subscribes to.
@@ -27,12 +27,21 @@ export default function herdrInteractiveToolBlock(pi: ExtensionAPI): void {
 	let engine: BlockEngine | undefined;
 
 	const emit = (active: boolean, label?: string): void => pi.events.emit(HERDR_BLOCKED_CHANNEL, { active, label });
+	const warn = (message: string): void => pi.logger.warn(`${PLUGIN_NAME}: ${message}`);
 
-	const rebuildEngine = (): void => {
+	// Rule modules are discovered on disk once; only config (enablement) changes
+	// per session, so cache the factories and re-instantiate from them.
+	const factoriesReady = discoverRuleFactories(undefined, warn).catch(error => {
+		warn(`rule discovery failed: ${error instanceof Error ? error.message : String(error)}`);
+		return [] as RuleFactory[];
+	});
+
+	const rebuildEngine = async (): Promise<void> => {
+		const factories = await factoriesReady;
 		engine?.clear();
-		engine = config.enabled ? new BlockEngine(buildRules(config), emit) : undefined;
+		engine = config.enabled ? new BlockEngine(instantiateRules(factories, config, warn), emit) : undefined;
 	};
-	rebuildEngine();
+	void rebuildEngine();
 
 	const activate = (ctx: ExtensionContext): boolean => {
 		if (!isMainSession && ctx.agent.kind === "main") isMainSession = true;
@@ -42,10 +51,10 @@ export default function herdrInteractiveToolBlock(pi: ExtensionAPI): void {
 	pi.on("session_start", async (_event, ctx) => {
 		activate(ctx);
 		config = await loadConfig(ctx.cwd).catch(error => {
-			pi.logger.warn(`${PLUGIN_NAME}: failed to load settings`, { error: error instanceof Error ? error.message : String(error) });
+			warn(`failed to load settings: ${error instanceof Error ? error.message : String(error)}`);
 			return config;
 		});
-		rebuildEngine();
+		await rebuildEngine();
 	});
 
 	pi.on("tool_execution_start", (event: ToolExecutionStartEvent, ctx) => {

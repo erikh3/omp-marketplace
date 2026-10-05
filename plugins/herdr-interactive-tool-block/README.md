@@ -29,14 +29,14 @@ The `difit` and `plannotator` rules were previously separate loose extensions in
 
 ## Adding a rule
 
-One rule is one file. Keep each rule to a single concern; split mixed concerns into separate rule files.
+Drop one file in `src/rules/`. No other file changes. Keep each rule to a single concern; split mixed concerns into separate rule files.
 
-1. Add a module under `src/rules/` that exports a factory returning a `BlockRule`:
+The file must **default-export** a factory that returns a `BlockRule`. Every `*.ts` in `src/rules/` except `index.ts` and `types.ts` is discovered and loaded at startup:
 
 ```typescript
 import type { BlockRule } from "./types.ts";
 
-export function myRule(): BlockRule {
+export default function myRule(): BlockRule {
 	return {
 		id: "my-rule",
 		onToolStart(event) {
@@ -47,9 +47,9 @@ export function myRule(): BlockRule {
 }
 ```
 
-2. Add one entry to `RULE_FACTORIES` in `src/rules/index.ts`. That is the only wiring step: `RULE_IDS`, the config toggle, and the default enablement all derive from this map. A rule that reads settings takes the resolved `BlockConfig` as its factory argument (as `browser-tools` does); one that needs none ignores it.
+That is the whole wiring step. The rule is enabled by default; a user disables it with `rules: { "my-rule": false }`. If the rule reads a setting, accept the resolved `BlockConfig` as the factory argument (as `browser-tools` does) and add the setting to `BlockConfig`/`loadConfig` in `src/config.ts` plus `package.json`; a rule that needs no config ignores the argument.
 
-A rule may keep private state across calls, for example to correlate a later `hub` wait with an earlier start, as the `plannotator` rule does.
+A rule may keep private state across calls, for example to correlate a later `hub` wait with an earlier start, as the `plannotator` rule does. A malformed rule file (no default function, or a factory that throws) is skipped with a logged warning, so one bad rule never disables the others.
 
 ## Configuration
 

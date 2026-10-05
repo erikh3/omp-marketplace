@@ -1,3 +1,5 @@
+import type { BlockConfig } from "../config.ts";
+import type { RuleFactory } from "./index.ts";
 import type { BlockRule, ToolStartInfo } from "./types.ts";
 
 /** Browser-tools MCP operations that wait for the user in Chrome mid-execution. */
@@ -40,3 +42,7 @@ export function browserToolsRule(ops: readonly string[] = BROWSER_TOOLS_INTERACT
 		},
 	};
 }
+
+/** Rule module entry: builds the browser-tools rule from config. */
+const factory: RuleFactory = (config: BlockConfig) => browserToolsRule(config.browserToolsOps ?? BROWSER_TOOLS_INTERACTIVE);
+export default factory;

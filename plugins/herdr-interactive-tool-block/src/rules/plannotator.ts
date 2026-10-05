@@ -12,9 +12,11 @@ function isPlannotatorCommand(args: unknown): boolean {
 	);
 }
 
-function isPlannotatorHubStart(args: unknown): boolean {
-	if (!isObject(args)) return false;
-	return args.op === "start" && args.application === "plannotator" && typeof args.name === "string";
+/** The session name if `args` starts a plannotator hub session, else `undefined`. */
+function plannotatorHubStartName(args: unknown): string | undefined {
+	if (!isObject(args)) return undefined;
+	if (args.op !== "start" || args.application !== "plannotator") return undefined;
+	return typeof args.name === "string" ? args.name : undefined;
 }
 
 function isPlannotatorHubWait(args: unknown, sessions: ReadonlySet<string>): boolean {
@@ -38,8 +40,9 @@ export function plannotatorRule(): BlockRule {
 				return isPlannotatorCommand(event.args) ? "plannotator review" : undefined;
 			}
 			if (event.toolName !== "hub") return undefined;
-			if (isPlannotatorHubStart(event.args)) {
-				sessions.add((event.args as Record<string, unknown>).name as string);
+			const startedName = plannotatorHubStartName(event.args);
+			if (startedName !== undefined) {
+				sessions.add(startedName);
 				return undefined;
 			}
 			if (isPlannotatorHubWait(event.args, sessions)) return "plannotator review";
@@ -47,3 +50,6 @@ export function plannotatorRule(): BlockRule {
 		},
 	};
 }
+
+/** Rule module entry. */
+export default plannotatorRule;

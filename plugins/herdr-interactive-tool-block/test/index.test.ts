@@ -12,6 +12,14 @@ interface BusEvent {
 
 const originalHerdrEnv = process.env.HERDR_ENV;
 
+function asBusEvent(data: unknown): BusEvent {
+	if (!data || typeof data !== "object" || !("active" in data)) throw new Error("unexpected herdr:blocked payload");
+	const active = (data as { active: unknown }).active;
+	const label = "label" in data ? (data as { label: unknown }).label : undefined;
+	if (typeof active !== "boolean") throw new Error("herdr:blocked active must be boolean");
+	return { active, label: typeof label === "string" ? label : undefined };
+}
+
 function makeContext(kind: "main" | "sub" = "main"): ExtensionContext {
 	return {
 		agent: { kind, id: "agent-1", name: kind, depth: kind === "main" ? 0 : 1 },
@@ -27,7 +35,7 @@ function makeHarness() {
 		on: (event: string, handler: Handler) => handlers.set(event, handler),
 		events: {
 			emit: (channel: string, data: unknown) => {
-				if (channel === "herdr:blocked") events.push(data as BusEvent);
+				if (channel === "herdr:blocked") events.push(asBusEvent(data));
 			},
 			on: () => () => undefined,
 		},
@@ -42,12 +50,17 @@ function fire(handlers: Map<string, Handler>, event: string, payload: unknown, c
 	return handler(payload, ctx);
 }
 
+/** Fire session_start and await it, so rule discovery + engine build complete. */
+async function boot(handlers: Map<string, Handler>, ctx: ExtensionContext) {
+	await fire(handlers, "session_start", { type: "session_start" }, ctx);
+}
+
 function start(toolCallId: string, toolName: string, intent?: string) {
 	return { type: "tool_execution_start", toolCallId, toolName, args: {}, intent };
 }
 
-function end(toolCallId: string, toolName: string) {
-	return { type: "tool_execution_end", toolCallId, toolName, result: {}, isError: false };
+function end(toolCallId: string, toolName: string, isError = false) {
+	return { type: "tool_execution_end", toolCallId, toolName, result: {}, isError };
 }
 
 beforeEach(() => {
@@ -60,9 +73,10 @@ afterEach(() => {
 });
 
 describe("wiring", () => {
-	test("brackets a default interactive tool for the main session", () => {
+	test("brackets a default browser-tools call for the main session", async () => {
 		const { handlers, events } = makeHarness();
 		const ctx = makeContext("main");
+		await boot(handlers, ctx);
 		fire(handlers, "tool_execution_start", start("call-1", "mcp__browser_tools_click", "Clicking link"), ctx);
 		fire(handlers, "tool_execution_end", end("call-1", "mcp__browser_tools_click"), ctx);
 		expect(events).toEqual([
@@ -71,9 +85,10 @@ describe("wiring", () => {
 		]);
 	});
 
-	test("blocks on a difit wait and a plannotator review, which ship enabled by default", () => {
+	test("blocks on a difit launch and a plannotator review, which ship enabled by default", async () => {
 		const { handlers, events } = makeHarness();
 		const ctx = makeContext("main");
+		await boot(handlers, ctx);
 		fire(handlers, "tool_execution_start", { type: "tool_execution_start", toolCallId: "d1", toolName: "bash", args: { command: "difit HEAD~1" } }, ctx);
 		fire(handlers, "tool_execution_start", { type: "tool_execution_start", toolCallId: "p1", toolName: "bash", args: { command: "plannotator review ." } }, ctx);
 		expect(events).toEqual([
@@ -82,28 +97,31 @@ describe("wiring", () => {
 		]);
 	});
 
-	test("does not report for a subagent session", () => {
+	test("does not report for a subagent session", async () => {
 		const { handlers, events } = makeHarness();
 		const ctx = makeContext("sub");
+		await boot(handlers, ctx);
 		fire(handlers, "tool_execution_start", start("call-1", "mcp__browser_tools_click"), ctx);
 		fire(handlers, "tool_execution_end", end("call-1", "mcp__browser_tools_click"), ctx);
 		expect(events).toEqual([]);
 	});
 
-	test("clears an outstanding block on session shutdown", () => {
+	test("clears an outstanding block on session shutdown", async () => {
 		const { handlers, events } = makeHarness();
 		const ctx = makeContext("main");
+		await boot(handlers, ctx);
 		fire(handlers, "tool_execution_start", start("call-1", "mcp__browser_tools_click"), ctx);
 		fire(handlers, "session_shutdown", { type: "session_shutdown" }, ctx);
 		expect(events).toHaveLength(2);
 		expect(events[1]?.active).toBe(false);
 	});
 
-	test("clears the block when a matched tool call ends in error", () => {
+	test("clears the block when a matched tool call ends in error", async () => {
 		const { handlers, events } = makeHarness();
 		const ctx = makeContext("main");
+		await boot(handlers, ctx);
 		fire(handlers, "tool_execution_start", start("call-1", "mcp__browser_tools_click", "Clicking"), ctx);
-		fire(handlers, "tool_execution_end", { type: "tool_execution_end", toolCallId: "call-1", toolName: "mcp__browser_tools_click", result: {}, isError: true }, ctx);
+		fire(handlers, "tool_execution_end", end("call-1", "mcp__browser_tools_click", true), ctx);
 		expect(events).toEqual([
 			{ active: true, label: "Clicking" },
 			{ active: false, label: undefined },

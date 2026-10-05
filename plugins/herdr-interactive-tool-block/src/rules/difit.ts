@@ -34,3 +34,6 @@ export function difitRule(): BlockRule {
 		},
 	};
 }
+
+/** Rule module entry. */
+export default difitRule;

@@ -3,28 +3,24 @@ import { describe, expect, test } from "bun:test";
 import { ruleToggles, stringList } from "../src/config.ts";
 
 describe("stringList", () => {
-	test("returns the fallback for a non-array or empty-after-filter value", () => {
-		expect(stringList(undefined, ["a"])).toEqual(["a"]);
-		expect(stringList("click", ["a"])).toEqual(["a"]);
-		expect(stringList([" ", 3, null], ["a"])).toEqual(["a"]);
+	test("returns undefined for a non-array or empty-after-filter value", () => {
+		expect(stringList(undefined)).toBeUndefined();
+		expect(stringList("click")).toBeUndefined();
+		expect(stringList([" ", 3, null])).toBeUndefined();
 	});
 
 	test("trims, drops blanks, and de-duplicates", () => {
-		expect(stringList([" click ", "pick", "pick", ""], ["a"])).toEqual(["click", "pick"]);
+		expect(stringList([" click ", "pick", "pick", ""])).toEqual(["click", "pick"]);
 	});
 });
 
 describe("ruleToggles", () => {
-	test("defaults every known rule to enabled", () => {
-		expect(ruleToggles(undefined)).toEqual({ "browser-tools": true, difit: true, plannotator: true });
+	test("returns an empty override map for a non-object value", () => {
+		expect(ruleToggles(undefined)).toEqual({});
+		expect(ruleToggles(["difit"])).toEqual({});
 	});
 
-	test("disables only the rules set to exactly false", () => {
-		expect(ruleToggles({ difit: false, plannotator: 0 })).toEqual({ "browser-tools": true, difit: false, plannotator: true });
-	});
-
-	test("ignores unknown rule ids and non-object values", () => {
-		expect(ruleToggles({ bogus: false })).toEqual({ "browser-tools": true, difit: true, plannotator: true });
-		expect(ruleToggles(["difit"])).toEqual({ "browser-tools": true, difit: true, plannotator: true });
+	test("keeps only boolean entries, so a rule disabled by false is recorded", () => {
+		expect(ruleToggles({ difit: false, "browser-tools": true, plannotator: 0 })).toEqual({ difit: false, "browser-tools": true });
 	});
 });
