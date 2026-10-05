@@ -24,6 +24,7 @@ The plugin runs a set of **rules**. Each rule inspects every starting tool call 
 | `browser-tools` | An interactive browser-tools call starts (default ops `click`, `input_text`, `pick`). Matches the `browser_tools_` MCP segment under either mount name form. | Tool call intent, else a tidied tool name. |
 | `difit` | A `difit` or `npx difit` launch bash command starts, or the legacy `hub(op="wait", name="difit")` call. | `difit review` |
 | `plannotator` | A `plannotator review` or gated `plannotator annotate` bash command starts, or a `hub` wait for a session started with `application=plannotator` (or any `plannotator`-prefixed name). | `plannotator review` |
+| `remote-shell` | A `remote-shell send-text` or `remote-shell wait-output` bash command starts. Both wait on the human, who alone presses Enter to submit the staged remote command. The non-waiting subcommands (`layout`, `select`, `read`, `reset`, `dismiss-pager`) are ignored. | `remote shell` |
 
 The `difit` and `plannotator` rules were previously separate loose extensions in `~/.omp/agent/extensions/`. They now live here as modules.
 

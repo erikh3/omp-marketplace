@@ -16,19 +16,19 @@ describe("discoverRuleFactories", () => {
 	test("discovers every built-in rule by dropping each file in, no manual list", async () => {
 		const factories = await discoverRuleFactories();
 		const ids = factories.map(factory => factory(DEFAULT_CONFIG).id);
-		expect(ids).toEqual(["browser-tools", "difit", "plannotator"]);
+		expect(ids).toEqual(["browser-tools", "difit", "plannotator", "remote-shell"]);
 	});
 });
 
 describe("buildRules", () => {
 	test("builds all built-in rules enabled by default, in directory order", async () => {
 		const rules = await buildRules(DEFAULT_CONFIG);
-		expect(rules.map(rule => rule.id)).toEqual(["browser-tools", "difit", "plannotator"]);
+		expect(rules.map(rule => rule.id)).toEqual(["browser-tools", "difit", "plannotator", "remote-shell"]);
 	});
 
 	test("omits a rule whose toggle is false", async () => {
 		const rules = await buildRules(configWith({ rules: { difit: false } }));
-		expect(rules.map(rule => rule.id)).toEqual(["browser-tools", "plannotator"]);
+		expect(rules.map(rule => rule.id)).toEqual(["browser-tools", "plannotator", "remote-shell"]);
 	});
 });
 
