@@ -85,7 +85,7 @@
     },
     {
       "name": "worktree-manager",
-      "description": "Creates, lists, relocates, and removes durable Git worktrees through a backend-owned placement tool. Direct model Git worktree commands remain non-blocking and receive placement advice when needed.",
+      "description": "Creates, lists, relocates, and removes durable Git worktrees through a backend-owned placement tool. Direct model Git worktree commands remain non-blocking and receive placement advice when needed. Adds a one-time, non-blocking hint about the tool when the model stages or commits in the main worktree (silent inside linked worktrees).",
       "source": "./worktree-manager",
       "category": "development",
       "homepage": "https://github.com/erikh3/omp-marketplace/tree/main/plugins/worktree-manager"
