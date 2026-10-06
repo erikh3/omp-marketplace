@@ -7,6 +7,7 @@ import { isToolCallEventType } from "@oh-my-pi/pi-coding-agent/extensibility/ext
 
 import { AdvisoryTracker, incidentReminder } from "./advisory.ts";
 import { IncidentStore } from "./incident-store.ts";
+import { StageAdvisor } from "./stage-advisor.ts";
 import { WorktreeService } from "./worktree-service.ts";
 import type { WorktreeServiceResult } from "./worktree-service.ts";
 import type { WorktreeAction, WorktreeRequest } from "./validation.ts";
@@ -79,10 +80,10 @@ function effectiveCwd(event: ToolCallEvent, ctx: ExtensionContext): string {
 /** Registers the durable Git worktree tool and non-blocking direct-command advice. */
 export default function worktreeManager(pi: ExtensionAPI, options: WorktreeManagerOptions = {}): void {
 	const incidents = options.incidents ?? new IncidentStore();
-	const service = options.service ?? new WorktreeService({
-		exec: (command, args, execOptions) => pi.exec(command, args, execOptions),
-	}, incidents);
+	const runner = { exec: (command: string, args: string[], execOptions?: { cwd?: string; signal?: AbortSignal }) => pi.exec(command, args, execOptions) };
+	const service = options.service ?? new WorktreeService(runner, incidents);
 	const advisory = new AdvisoryTracker(service, incidents);
+	const stageAdvisor = new StageAdvisor(runner);
 	const z = pi.zod;
 
 	pi.registerTool({
@@ -110,14 +111,20 @@ export default function worktreeManager(pi: ExtensionAPI, options: WorktreeManag
 
 	pi.on("tool_call", async (event, ctx) => {
 		if (!isToolCallEventType("bash", event)) return;
-		await advisory.observe(event.toolCallId, event.input.command, effectiveCwd(event, ctx), ctx);
+		const cwd = effectiveCwd(event, ctx);
+		await advisory.observe(event.toolCallId, event.input.command, cwd, ctx);
+		stageAdvisor.observe(event.toolCallId, event.input.command, cwd);
 	});
 
 	pi.on("tool_result", async (event, ctx) => {
 		if (event.toolName !== "bash") return;
 		const reminder = await advisory.complete(event.toolCallId, event.isError, ctx);
-		if (!reminder) return;
-		return { content: [{ type: "text" as const, text: `${reminder}\n\n` }, ...event.content] };
+		const hint = await stageAdvisor.complete(event.toolCallId, event.isError);
+		if (!reminder && !hint) return;
+		return {
+			...(reminder ? { content: [{ type: "text" as const, text: `${reminder}\n\n` }, ...event.content] } : {}),
+			...(hint ? { additionalContext: hint } : {}),
+		};
 	});
 
 	pi.on("session_start", async (_event, ctx) => {
@@ -133,5 +140,6 @@ export default function worktreeManager(pi: ExtensionAPI, options: WorktreeManag
 
 	pi.on("session_shutdown", (_event, ctx) => {
 		advisory.clear(ctx);
+		stageAdvisor.clear();
 	});
 }

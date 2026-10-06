@@ -73,9 +73,14 @@ function worktreeOptionNeedsValue(argument: string): boolean {
 	return argument === "-b" || argument === "-B" || argument === "--lock" || argument === "--reason";
 }
 
-function parseSegment(segment: string, cwd: string): ParsedGitWorktreeCommand | undefined {
-	const words = tokenize(segment);
-	if (!words) return undefined;
+interface LocatedGitSubcommand {
+	repositoryHint: string;
+	subcommand: string;
+	index: number;
+}
+
+/** Walks env prefixes, `command`, `git`, and global flags to the first positional subcommand token. */
+function locateGitSubcommand(words: string[], cwd: string): LocatedGitSubcommand | undefined {
 	let index = 0;
 	while (/^[A-Za-z_][A-Za-z0-9_]*=/.test(words[index] ?? "")) index += 1;
 	if (words[index] === "env") {
@@ -87,7 +92,7 @@ function parseSegment(segment: string, cwd: string): ParsedGitWorktreeCommand | 
 	index += 1;
 
 	let repositoryHint = cwd;
-	while (index < words.length && words[index] !== "worktree") {
+	while (index < words.length) {
 		const argument = words[index] ?? "";
 		if (argument === "-C") {
 			const path = words[index + 1];
@@ -101,13 +106,24 @@ function parseSegment(segment: string, cwd: string): ParsedGitWorktreeCommand | 
 			index += 1;
 			continue;
 		}
-		if (!argument.startsWith("-")) return undefined;
+		if (!argument.startsWith("-")) break;
 		index += optionNeedsValue(argument) ? 2 : 1;
 	}
-	if (words[index] !== "worktree") return undefined;
-	const operation = words[index + 1];
+	const subcommand = words[index];
+	if (!subcommand) return undefined;
+	return { repositoryHint, subcommand, index };
+}
+
+function parseSegment(segment: string, cwd: string): ParsedGitWorktreeCommand | undefined {
+	const words = tokenize(segment);
+	if (!words) return undefined;
+	const located = locateGitSubcommand(words, cwd);
+	if (!located || located.subcommand !== "worktree") return undefined;
+	const { repositoryHint } = located;
+	let index = located.index + 1;
+	const operation = words[index];
 	if (operation !== "add" && operation !== "move") return undefined;
-	index += 2;
+	index += 1;
 
 	const positional: string[] = [];
 	let options = true;
@@ -135,5 +151,24 @@ export function parseDirectWorktreeCommands(command: string, cwd: string): Parse
 	return splitCommands(command).flatMap((segment) => {
 		const parsed = parseSegment(segment, cwd);
 		return parsed ? [parsed] : [];
+	});
+}
+
+/** Subcommands that place changes in the index of their worktree. */
+const STAGING_SUBCOMMANDS: Record<string, true> = { add: true, commit: true, stage: true };
+
+/**
+ * Repository hints for segments that stage or commit changes in place.
+ * `git -C <path> add/commit/stage` resolves the hint against cwd; a bare
+ * invocation keeps cwd. Returns one hint per matching segment (duplicates kept
+ * so the caller can dedupe after resolving each to a repository root).
+ */
+export function detectStagingRepositories(command: string, cwd: string): string[] {
+	return splitCommands(command).flatMap((segment) => {
+		const words = tokenize(segment);
+		if (!words) return [];
+		const located = locateGitSubcommand(words, cwd);
+		if (!located || STAGING_SUBCOMMANDS[located.subcommand] !== true) return [];
+		return [located.repositoryHint];
 	});
 }

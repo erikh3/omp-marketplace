@@ -35,6 +35,22 @@ The next OMP session in that repository receives a `nextTurn` reminder until `wo
 
 OMP task isolation and pull-request checkout remain separate temporary checkout features. This plugin does not replace or block either path.
 
+## Main-worktree staging hint
+
+When the model runs `git add`, `git commit`, or `git stage` in a repository's
+**primary** worktree, the Bash result carries a one-time passive note that
+`worktree_manager` can create a durable worktree for isolated work. It is a
+hint, not a block: the command always runs, and the note is attached as
+separate developer context rather than mixed into the command output.
+
+The hint stays quiet when it is not useful:
+
+- It never fires inside a linked worktree. The plugin compares `git rev-parse
+  --git-dir` with `--git-common-dir`; they match only in the main worktree, so
+  work already isolated in a dedicated worktree gets no reminder.
+- It fires at most once per session.
+- It is skipped when the staging command itself failed.
+
 ## Install
 
 ```text
