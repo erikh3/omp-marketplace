@@ -1,0 +1,24 @@
+{
+  "name": "sse-stream-retry",
+  "version": "0.1.0",
+  "description": "Auto-continues the turn when the model stream aborts with an SSE iteration error, using exponential backoff before giving up.",
+  "private": true,
+  "omp": {
+    "extensions": [
+      "./src/index.ts"
+    ],
+    "settings": {
+      "enabled": { "type": "boolean", "default": true, "description": "Enable auto-continue on aborted SSE streams" }
+    }
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "bun test"
+  },
+  "devDependencies": {
+    "@oh-my-pi/pi-coding-agent": "^18.1.14",
+    "@oh-my-pi/pi-ai": "^18.1.14",
+    "bun-types": "^1.4.2",
+    "typescript": "^7.0.2"
+  }
+}
