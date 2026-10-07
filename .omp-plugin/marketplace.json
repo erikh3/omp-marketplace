@@ -110,6 +110,13 @@
       "source": "./hai-jwt-retry",
       "category": "productivity",
       "homepage": "https://github.com/erikh3/omp-marketplace/tree/main/plugins/hai-jwt-retry"
+    },
+    {
+      "name": "sse-stream-retry",
+      "description": "Auto-continues the current agent turn when the model stream aborts with an SSE iteration error, using an immediate-first backoff ladder before giving up.",
+      "source": "./sse-stream-retry",
+      "category": "productivity",
+      "homepage": "https://github.com/erikh3/omp-marketplace/tree/main/plugins/sse-stream-retry"
     }
   ]
 }
