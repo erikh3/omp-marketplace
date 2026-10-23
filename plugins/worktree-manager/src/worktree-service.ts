@@ -14,6 +14,8 @@ export interface WorktreeServiceResult {
 	branch?: string;
 	worktrees?: Array<{ path: string; branch?: string; isMain: boolean; isPrunable: boolean }>;
 	placement?: PlacementPolicy;
+	/** Main checkout that had staged, unstaged, or untracked changes before creation. */
+	dirtyMainWorktree?: string;
 }
 
 /** Coordinates repository validation, backend lifecycle calls, and incident resolution. */
@@ -35,6 +37,13 @@ export class WorktreeService {
 		switch (request.action) {
 			case "create": {
 				requireCreateRequest(request);
+				const main = (await this.backend.listAll(context)).find((worktree) => worktree.isMain);
+				let dirtyMainWorktree: string | undefined;
+				if (main) {
+					const status = await this.runner.exec("git", ["status", "--porcelain", "--untracked-files=normal"], { cwd: main.path, signal });
+					if (status.code !== 0) throw new WorktreeManagerError("Cannot inspect main worktree status before creation");
+					if (status.stdout.trim()) dirtyMainWorktree = main.path;
+				}
 				const created = await this.backend.create(request, context);
 				return {
 					action: request.action,
@@ -43,6 +52,7 @@ export class WorktreeService {
 					branch: request.branch,
 					path: created.path,
 					placement: created.policy,
+					dirtyMainWorktree,
 				};
 			}
 			case "list": {

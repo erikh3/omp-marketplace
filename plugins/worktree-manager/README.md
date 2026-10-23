@@ -8,6 +8,14 @@ worktree_manager
 
 Use it for `create`, `list`, and `remove`. The tool owns destination selection. `create` takes a Git top-level directory, branch, and base ref. It does not accept a destination path.
 
+## Dirty-main cutover
+
+Before `create`, the tool checks the main checkout for staged, unstaged, and untracked changes, even when the request originates in a linked worktree. If main is dirty, the successful result includes a cutover reminder. A clean main checkout receives no reminder.
+
+Creation does not transfer edits, change the session directory, or clean main. Before continuing task work, transfer and verify only the task's changes in the new worktree, then undo those changes in main. Preserve user and other-task changes. Main must return to its pre-task status and staged and unstaged diffs, not necessarily to a clean state. Do not use whole-worktree cleanup commands. If ownership is uncertain, stop cleanup and ask the user.
+
+If the main-checkout status check fails, creation does not proceed.
+
 ## Placement backends
 
 Every backend manages Git worktrees. Backend selection is automatic:
