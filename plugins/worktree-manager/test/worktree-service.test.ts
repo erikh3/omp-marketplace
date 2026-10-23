@@ -34,6 +34,41 @@ function runnerFor(root: string, worktreeOutput = "") {
 }
 
 describe("WorktreeService", () => {
+	for (const status of [" M tracked.txt\n", "M  staged.txt\n", "?? new.txt\n", ""]) {
+		test(`checks main status when creating from a linked checkout: ${JSON.stringify(status)}`, async () => {
+			const root = await temporaryRepository();
+			const main = await temporaryRepository();
+			const runner = runnerFor(root, `worktree ${main}\nbranch refs/heads/main\n\nworktree ${root}\nbranch refs/heads/topic\n`);
+			const exec = runner.exec;
+			const inspectingRunner = {
+				exec: async (command: string, args: string[], options?: { cwd?: string }) => {
+					if (args[0] === "status") {
+						expect(options?.cwd).toBe(main);
+						return { stdout: status, stderr: "", code: 0 };
+					}
+					return exec(command, args);
+				},
+			};
+			const service = new WorktreeService(inspectingRunner, new IncidentStore(join(root, "incidents.json")), new GitBackend(inspectingRunner));
+			const result = await service.execute({ action: "create", repository: root, branch: "cutover", baseRef: "HEAD", gitGlobalArgs: [], worktreeArgs: [] });
+			expect(result.dirtyMainWorktree).toBe(status ? main : undefined);
+		});
+	}
+
+	test("does not create a worktree when main status cannot be inspected", async () => {
+		const root = await temporaryRepository();
+		const runner = runnerFor(root, `worktree ${root}\nbranch refs/heads/main\n`);
+		const exec = runner.exec;
+		const inspectingRunner = {
+			exec: async (command: string, args: string[]) => args[0] === "status"
+				? { stdout: "", stderr: "status failed", code: 1 }
+				: exec(command, args),
+		};
+		const service = new WorktreeService(inspectingRunner, new IncidentStore(join(root, "incidents.json")), new GitBackend(inspectingRunner));
+		await expect(service.execute({ action: "create", repository: root, branch: "cutover", baseRef: "HEAD", gitGlobalArgs: [], worktreeArgs: [] })).rejects.toThrow("Cannot inspect main worktree status");
+		expect(runner.calls.some((call) => call.args.includes("add"))).toBeFalse();
+	});
+
 	test("creates slash-containing branches inside .omp/worktrees while preserving flags", async () => {
 		const root = await temporaryRepository();
 		const runner = runnerFor(root);

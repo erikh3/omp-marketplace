@@ -63,7 +63,9 @@ function formatResult(result: WorktreeServiceResult): string {
 		return `${header}\nWorktree locations:${locations.length > 0 ? `\n${locations.join("\n")}` : " none"}`;
 	}
 	if (result.action === "create") {
-		return `${header}\nNew worktree location: ${result.path}`;
+		const location = `${header}\nNew worktree location: ${result.path}`;
+		if (!result.dirtyMainWorktree) return location;
+		return `${location}\n\nCutover required: main checkout ${result.dirtyMainWorktree} was dirty before creation. This tool does not transfer or undo edits. Before new task work, transfer and verify only this task's changes in the new worktree, then undo only those changes in main, including staged edits and task-created files. Preserve all user and other-task changes. Main must match its pre-task status and staged and unstaged diffs; if it was clean, it must be clean again. Never use git restore ., git reset --hard, or git clean. If ownership is uncertain, stop cleanup and ask the user. All later task edits, tests, staging, and commits belong in the new worktree.`;
 	}
 	return `${header}\nRemoved worktree location: ${result.path}`;
 }
