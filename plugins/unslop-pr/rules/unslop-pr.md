@@ -1,8 +1,6 @@
 ---
 name: unslop-pr
-condition: [".*"]
-scope: "tool:write(*create_pull_request), tool:write(*update_pull_request)"
-interruptMode: always
+alwaysApply: true
 ---
 
-Apply skill://unslop before writing the PR title and description. If unavailable, apply from memory: no em dashes, no AI vocabulary, no filler, plain active voice.
+Before creating a pull request or changing its title or description, apply skill://unslop to the proposed text. This applies to GitHub MCP calls and gh commands. If the skill is unavailable, use plain active voice with no em dashes, AI vocabulary, or filler. Updates that do not change the title or description need no wording review.

@@ -38,7 +38,7 @@ A local source is any path starting with `./`, `~/`, or `/` that contains
 | [`session-autoname`](plugins/session-autoname) | Auto-name the session from its logs via the smol model when `/name` or `/rename` is issued without a title. |
 | [`obsidian-welcome`](plugins/obsidian-welcome) | Shows an animated Obsidian welcome widget only when omp runs inside an Obsidian vault. Includes daily-note status and recent notes. |
 | [`context-injector`](plugins/context-injector) | Inject skills and arbitrary file contents into the LLM context at agent-start time. Supports `skill://` URIs, filesystem paths, and globs. |
-| [`unslop-pr`](plugins/unslop-pr) | TTSR rules that intercept PR creation and update calls and force the agent to load the `unslop` skill before writing PR titles or descriptions. |
+| [`unslop-pr`](plugins/unslop-pr) | Always-applied prompt rule that asks the agent to apply `unslop` before writing PR titles or descriptions, without interrupting tool calls. |
 | [`omp-permission-guard`](https://github.com/erikh3/omp-permission-guard) | External source (fork of `hank-warren/omp-permission-guard`, pinned to a reviewed commit). Classifier-based tool-approval gate (heuristic / guardian / hybrid). |
 | [`git-commit-linter`](plugins/git-commit-linter) | Validates model-issued `git commit` messages against commitlint rules before Bash executes. Enforces Conventional Commits by default; defers to repository commitlint config when present. |
 | [`worktree-manager`](plugins/worktree-manager) | Creates, lists, relocates, and removes durable Git worktrees through a backend-owned placement tool. Adds a one-time, non-blocking hint to use the tool when the agent stages or commits in the main worktree (silent inside linked worktrees). |
