@@ -71,7 +71,7 @@
     },
     {
       "name": "unslop-pr",
-      "description": "Always-applied prompt rule that asks the agent to apply unslop before writing PR titles or descriptions, without interrupting tool calls.",
+      "description": "Conditional TTSR rules that flag common AI wording in PR writes and prompt an unslop review before retrying.",
       "source": "./unslop-pr",
       "category": "productivity",
       "homepage": "https://github.com/erikh3/omp-marketplace/tree/main/plugins/unslop-pr"

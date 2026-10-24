@@ -1,6 +1,6 @@
 {
   "name": "unslop-pr",
-  "version": "1.0.2",
-  "description": "Prompt rule that asks the agent to apply unslop to PR titles and descriptions without interrupting tool calls",
+  "version": "1.0.3",
+  "description": "Conditional TTSR rules that prompt an unslop review of PR titles and descriptions",
   "omp": {}
 }
