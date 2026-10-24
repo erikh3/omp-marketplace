@@ -14,6 +14,8 @@ Matching covers the whole payload or command, not just title/body fields. False 
 
 The regexes use the local `unslop` skill's vocabulary and filler list, plus common web examples. Word families include forms of `delve`, `underscore`, `showcase`, `enhance`, `utilize`, and `leverage`. Phrase matches include `it is important to note`, `in order to`, `I hope this helps`, `in today's fast-paced world`, and `not just ... but`. Common technical words such as `within`, `across`, `features`, and `vector` are not standalone triggers.
 
+Maintain each word family or phrase as a separate `condition` entry in the existing rule files. Entries are OR alternatives. Every bash entry must also require `gh pr create` or `gh pr edit`; a separate command-only entry would interrupt clean PR calls. Keep the rule names unchanged to preserve the shared cooldown within each tool path.
+
 Sources for the selection, not proof of individual authorship:
 
 - [Juzek and Ward, COLING 2025](https://aclanthology.org/2025.coling-main.426/): lexical overrepresentation in LLM-assisted writing.
