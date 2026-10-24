@@ -71,7 +71,7 @@
     },
     {
       "name": "unslop-pr",
-      "description": "TTSR rules that intercept PR creation and update calls (both xd://mcp write path and gh pr bash commands) and force the agent to load the unslop skill before writing PR titles or descriptions.",
+      "description": "Conditional TTSR rules that flag common AI wording in PR writes and prompt an unslop review before retrying.",
       "source": "./unslop-pr",
       "category": "productivity",
       "homepage": "https://github.com/erikh3/omp-marketplace/tree/main/plugins/unslop-pr"

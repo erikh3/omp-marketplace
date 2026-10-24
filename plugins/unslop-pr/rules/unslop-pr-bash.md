@@ -1,8 +1,65 @@
 ---
 name: unslop-pr-bash
-condition: ["gh pr (create|edit|set)"]
+condition:
+  # Punctuation
+  - '(?i)(?=[\s\S]*\bgh\s+pr\s+(?:create|edit)\b)(?=[\s\S]*\u2014)'
+  - '(?i)(?=[\s\S]*\bgh\s+pr\s+(?:create|edit)\b)(?=[\s\S]*\\u2014)'
+  # Word families
+  - '(?i)(?=[\s\S]*\bgh\s+pr\s+(?:create|edit)\b)(?=[\s\S]*\badditionally\b)'
+  - '(?i)(?=[\s\S]*\bgh\s+pr\s+(?:create|edit)\b)(?=[\s\S]*\bcrucial\b)'
+  - '(?i)(?=[\s\S]*\bgh\s+pr\s+(?:create|edit)\b)(?=[\s\S]*\bdelv(?:e[sd]?|ing)\b)'
+  - '(?i)(?=[\s\S]*\bgh\s+pr\s+(?:create|edit)\b)(?=[\s\S]*\benduring\b)'
+  - '(?i)(?=[\s\S]*\bgh\s+pr\s+(?:create|edit)\b)(?=[\s\S]*\benhanc(?:e[sd]?|ing)\b)'
+  - '(?i)(?=[\s\S]*\bgh\s+pr\s+(?:create|edit)\b)(?=[\s\S]*\bfoster(?:s|ed|ing)?\b)'
+  - '(?i)(?=[\s\S]*\bgh\s+pr\s+(?:create|edit)\b)(?=[\s\S]*\bgarner(?:s|ed|ing)?\b)'
+  - '(?i)(?=[\s\S]*\bgh\s+pr\s+(?:create|edit)\b)(?=[\s\S]*\binterplay\b)'
+  - '(?i)(?=[\s\S]*\bgh\s+pr\s+(?:create|edit)\b)(?=[\s\S]*\bintricat(?:e|ely|es|ies)\b)'
+  - '(?i)(?=[\s\S]*\bgh\s+pr\s+(?:create|edit)\b)(?=[\s\S]*\blandscape\b)'
+  - '(?i)(?=[\s\S]*\bgh\s+pr\s+(?:create|edit)\b)(?=[\s\S]*\bpivotal\b)'
+  - '(?i)(?=[\s\S]*\bgh\s+pr\s+(?:create|edit)\b)(?=[\s\S]*\bshowcas(?:e[sd]?|ing)\b)'
+  - '(?i)(?=[\s\S]*\bgh\s+pr\s+(?:create|edit)\b)(?=[\s\S]*\btapestr(?:y|ies)\b)'
+  - '(?i)(?=[\s\S]*\bgh\s+pr\s+(?:create|edit)\b)(?=[\s\S]*\btestament\b)'
+  - '(?i)(?=[\s\S]*\bgh\s+pr\s+(?:create|edit)\b)(?=[\s\S]*\bunderscor(?:e[sd]?|ing)\b)'
+  - '(?i)(?=[\s\S]*\bgh\s+pr\s+(?:create|edit)\b)(?=[\s\S]*\bvibrant\b)'
+  - '(?i)(?=[\s\S]*\bgh\s+pr\s+(?:create|edit)\b)(?=[\s\S]*\butili[sz](?:e[sd]?|ing|ation)\b)'
+  - '(?i)(?=[\s\S]*\bgh\s+pr\s+(?:create|edit)\b)(?=[\s\S]*\bleverag(?:e[sd]?|ing)\b)'
+  - '(?i)(?=[\s\S]*\bgh\s+pr\s+(?:create|edit)\b)(?=[\s\S]*\bfacilitat(?:e[sd]?|ing)\b)'
+  - '(?i)(?=[\s\S]*\bgh\s+pr\s+(?:create|edit)\b)(?=[\s\S]*\bnumerous\b)'
+  - '(?i)(?=[\s\S]*\bgh\s+pr\s+(?:create|edit)\b)(?=[\s\S]*\bcomprehensive\b)'
+  - '(?i)(?=[\s\S]*\bgh\s+pr\s+(?:create|edit)\b)(?=[\s\S]*\bmeticulous(?:ly)?\b)'
+  - '(?i)(?=[\s\S]*\bgh\s+pr\s+(?:create|edit)\b)(?=[\s\S]*\bseamless(?:ly)?\b)'
+  - '(?i)(?=[\s\S]*\bgh\s+pr\s+(?:create|edit)\b)(?=[\s\S]*\bgroundbreaking\b)'
+  - '(?i)(?=[\s\S]*\bgh\s+pr\s+(?:create|edit)\b)(?=[\s\S]*\brevolutionary\b)'
+  # Filler and stock phrases
+  - '(?i)(?=[\s\S]*\bgh\s+pr\s+(?:create|edit)\b)(?=[\s\S]*\bit(?: is|\x27s) (?:important to note|worth noting)(?: that)?\b)'
+  - '(?i)(?=[\s\S]*\bgh\s+pr\s+(?:create|edit)\b)(?=[\s\S]*\bin order to\b)'
+  - '(?i)(?=[\s\S]*\bgh\s+pr\s+(?:create|edit)\b)(?=[\s\S]*\bdue to the fact that\b)'
+  - '(?i)(?=[\s\S]*\bgh\s+pr\s+(?:create|edit)\b)(?=[\s\S]*\bin the event that\b)'
+  - '(?i)(?=[\s\S]*\bgh\s+pr\s+(?:create|edit)\b)(?=[\s\S]*\bexperts believe\b)'
+  - '(?i)(?=[\s\S]*\bgh\s+pr\s+(?:create|edit)\b)(?=[\s\S]*\bindustry reports suggest\b)'
+  - '(?i)(?=[\s\S]*\bgh\s+pr\s+(?:create|edit)\b)(?=[\s\S]*\bsome critics argue\b)'
+  - '(?i)(?=[\s\S]*\bgh\s+pr\s+(?:create|edit)\b)(?=[\s\S]*\bi hope this helps\b)'
+  - '(?i)(?=[\s\S]*\bgh\s+pr\s+(?:create|edit)\b)(?=[\s\S]*\blet me know if\b)'
+  - '(?i)(?=[\s\S]*\bgh\s+pr\s+(?:create|edit)\b)(?=[\s\S]*\bgreat question\b)'
+  - '(?i)(?=[\s\S]*\bgh\s+pr\s+(?:create|edit)\b)(?=[\s\S]*\byou(?: are|\x27re) absolutely right\b)'
+  - '(?i)(?=[\s\S]*\bgh\s+pr\s+(?:create|edit)\b)(?=[\s\S]*\bof course\b)'
+  - '(?i)(?=[\s\S]*\bgh\s+pr\s+(?:create|edit)\b)(?=[\s\S]*\bcertainly\b)'
+  - '(?i)(?=[\s\S]*\bgh\s+pr\s+(?:create|edit)\b)(?=[\s\S]*\bas an ai(?: language model)?\b)'
+  - '(?i)(?=[\s\S]*\bgh\s+pr\s+(?:create|edit)\b)(?=[\s\S]*\bin conclusion\b)'
+  - '(?i)(?=[\s\S]*\bgh\s+pr\s+(?:create|edit)\b)(?=[\s\S]*\bin summary\b)'
+  - '(?i)(?=[\s\S]*\bgh\s+pr\s+(?:create|edit)\b)(?=[\s\S]*\bto summarize\b)'
+  - '(?i)(?=[\s\S]*\bgh\s+pr\s+(?:create|edit)\b)(?=[\s\S]*\bserves as\b)'
+  - '(?i)(?=[\s\S]*\bgh\s+pr\s+(?:create|edit)\b)(?=[\s\S]*\bstands as\b)'
+  - '(?i)(?=[\s\S]*\bgh\s+pr\s+(?:create|edit)\b)(?=[\s\S]*\bplays? a (?:crucial|vital|pivotal|significant) role\b)'
+  - '(?i)(?=[\s\S]*\bgh\s+pr\s+(?:create|edit)\b)(?=[\s\S]*\bin today(?:\x27s|\u2019s) (?:fast[- ]paced world|digital age)\b)'
+  - '(?i)(?=[\s\S]*\bgh\s+pr\s+(?:create|edit)\b)(?=[\s\S]*\bin an era of\b)'
+  - '(?i)(?=[\s\S]*\bgh\s+pr\s+(?:create|edit)\b)(?=[\s\S]*\bgame[- ]changer\b)'
+  - '(?i)(?=[\s\S]*\bgh\s+pr\s+(?:create|edit)\b)(?=[\s\S]*\bcutting[- ]edge\b)'
+  - '(?i)(?=[\s\S]*\bgh\s+pr\s+(?:create|edit)\b)(?=[\s\S]*\bunlock(?:s|ed|ing)? (?:potential|value|growth)\b)'
+  # Contrast rhetoric
+  - '(?i)(?=[\s\S]*\bgh\s+pr\s+(?:create|edit)\b)(?=[\s\S]*\bnot (?:just|only)\b[^.!?\r\n]{0,160}\bbut\b)'
 scope: "tool:bash"
 interruptMode: always
 ---
 
-Apply skill://unslop before writing the PR title and description. If unavailable, apply from memory: no em dashes, no AI vocabulary, no filler, plain active voice.
+Apply skill://unslop; rewrite PR wording only if warranted, preserve necessary terms and literals, then retry.

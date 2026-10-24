@@ -1,8 +1,65 @@
 ---
 name: unslop-pr
-condition: [".*"]
+condition:
+  # Punctuation
+  - '(?i)\u2014'
+  - '(?i)\\u2014'
+  # Word families
+  - '(?i)\badditionally\b'
+  - '(?i)\bcrucial\b'
+  - '(?i)\bdelv(?:e[sd]?|ing)\b'
+  - '(?i)\benduring\b'
+  - '(?i)\benhanc(?:e[sd]?|ing)\b'
+  - '(?i)\bfoster(?:s|ed|ing)?\b'
+  - '(?i)\bgarner(?:s|ed|ing)?\b'
+  - '(?i)\binterplay\b'
+  - '(?i)\bintricat(?:e|ely|es|ies)\b'
+  - '(?i)\blandscape\b'
+  - '(?i)\bpivotal\b'
+  - '(?i)\bshowcas(?:e[sd]?|ing)\b'
+  - '(?i)\btapestr(?:y|ies)\b'
+  - '(?i)\btestament\b'
+  - '(?i)\bunderscor(?:e[sd]?|ing)\b'
+  - '(?i)\bvibrant\b'
+  - '(?i)\butili[sz](?:e[sd]?|ing|ation)\b'
+  - '(?i)\bleverag(?:e[sd]?|ing)\b'
+  - '(?i)\bfacilitat(?:e[sd]?|ing)\b'
+  - '(?i)\bnumerous\b'
+  - '(?i)\bcomprehensive\b'
+  - '(?i)\bmeticulous(?:ly)?\b'
+  - '(?i)\bseamless(?:ly)?\b'
+  - '(?i)\bgroundbreaking\b'
+  - '(?i)\brevolutionary\b'
+  # Filler and stock phrases
+  - '(?i)\bit(?: is|\x27s) (?:important to note|worth noting)(?: that)?\b'
+  - '(?i)\bin order to\b'
+  - '(?i)\bdue to the fact that\b'
+  - '(?i)\bin the event that\b'
+  - '(?i)\bexperts believe\b'
+  - '(?i)\bindustry reports suggest\b'
+  - '(?i)\bsome critics argue\b'
+  - '(?i)\bi hope this helps\b'
+  - '(?i)\blet me know if\b'
+  - '(?i)\bgreat question\b'
+  - '(?i)\byou(?: are|\x27re) absolutely right\b'
+  - '(?i)\bof course\b'
+  - '(?i)\bcertainly\b'
+  - '(?i)\bas an ai(?: language model)?\b'
+  - '(?i)\bin conclusion\b'
+  - '(?i)\bin summary\b'
+  - '(?i)\bto summarize\b'
+  - '(?i)\bserves as\b'
+  - '(?i)\bstands as\b'
+  - '(?i)\bplays? a (?:crucial|vital|pivotal|significant) role\b'
+  - '(?i)\bin today(?:\x27s|\u2019s) (?:fast[- ]paced world|digital age)\b'
+  - '(?i)\bin an era of\b'
+  - '(?i)\bgame[- ]changer\b'
+  - '(?i)\bcutting[- ]edge\b'
+  - '(?i)\bunlock(?:s|ed|ing)? (?:potential|value|growth)\b'
+  # Contrast rhetoric
+  - '(?i)\bnot (?:just|only)\b[^.!?\r\n]{0,160}\bbut\b'
 scope: "tool:write(*create_pull_request), tool:write(*update_pull_request)"
 interruptMode: always
 ---
 
-Apply skill://unslop before writing the PR title and description. If unavailable, apply from memory: no em dashes, no AI vocabulary, no filler, plain active voice.
+Apply skill://unslop; rewrite PR wording only if warranted, preserve necessary terms and literals, then retry.

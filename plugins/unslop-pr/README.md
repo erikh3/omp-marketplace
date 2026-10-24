@@ -1,17 +1,26 @@
 # unslop-pr
 
-TTSR rule that intercepts PR creation and update calls and forces the agent to apply unslop before writing any PR title or description.
+Conditional TTSR rules that prompt the agent to review PR titles and descriptions with `skill://unslop` when common AI wording appears.
 
 ## What it does
 
-Two rules fire on different code paths:
+The rules watch GitHub MCP PR create/update writes and `gh pr create`/`gh pr edit` commands. Case-insensitive, whole-word regexes flag vocabulary, filler phrases, promotional claims, and em dashes. Clean text and metadata-only updates without matched wording do not trigger.
 
-- **unslop-pr** — fires when `xd://mcp__tools_github_mcp_create_pull_request` or `xd://mcp__tools_github_mcp_update_pull_request` is written (the `write` tool is the actual carrier for xd:// device calls). Aborts the generation, injects the unslop reminder, and retries.
-- **unslop-pr-bash** — fires when the bash tool is called with a command containing `gh pr create`, `gh pr edit`, or `gh pr set`. Same interrupt-and-retry behavior.
+A match interrupts before execution and injects a short review reminder. The agent decides whether to rewrite or retain the wording, then retries. Necessary technical terms, quotations, and literals may stay unchanged. OMP's default repeat policy fires each rule once per session, allowing an unchanged retry after review.
 
-## Why two rules
+Matching covers the whole payload or command, not just title/body fields. False positives are accepted; regexes do not establish AI authorship. Files referenced by `--body-file` are not inspected.
 
-GitHub MCP tools are called via `write(path: "xd://mcp__tools_github_mcp_create_pull_request", ...)`. The tool name seen by the TTSR engine is `write`, not the MCP tool name. A scope like `tool:mcp__tools_github_mcp_create_pull_request` never fires. The correct scope uses `tool:write(*create_pull_request)`, which matches by path basename.
+## Trigger selection
+
+The regexes use the local `unslop` skill's vocabulary and filler list, plus common web examples. Word families include forms of `delve`, `underscore`, `showcase`, `enhance`, `utilize`, and `leverage`. Phrase matches include `it is important to note`, `in order to`, `I hope this helps`, `in today's fast-paced world`, and `not just ... but`. Common technical words such as `within`, `across`, `features`, and `vector` are not standalone triggers.
+
+Maintain each word family or phrase as a separate `condition` entry in the existing rule files. Entries are OR alternatives. Every bash entry must also require `gh pr create` or `gh pr edit`; a separate command-only entry would interrupt clean PR calls. Keep the rule names unchanged to preserve the shared cooldown within each tool path.
+
+Sources for the selection, not proof of individual authorship:
+
+- [Juzek and Ward, COLING 2025](https://aclanthology.org/2025.coling-main.426/): lexical overrepresentation in LLM-assisted writing.
+- [Kobak et al., Science Advances 2025](https://pmc.ncbi.nlm.nih.gov/articles/PMC12219543/): excess vocabulary and the limits of identifying individual texts.
+- [Launchcraft's writing examples](https://www.launchcraft.io/signals): filler phrases and promotional wording.
 
 ## Install
 
