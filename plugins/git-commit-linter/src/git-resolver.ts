@@ -444,14 +444,11 @@ async function readCommitMessage(
 }
 
 /**
- * Build the git argument prefix that mirrors the invocation's global options
- * (`-C` flags and `--git-dir` / `--work-tree` when present).
+ * Build repository selector arguments. effectiveCwd already includes every -C,
+ * so replaying them here would apply relative directory changes twice.
  */
 function buildGitBaseArgs(invocation: CommitInvocation): string[] {
 	const args: string[] = [];
-	for (const c of invocation.gitGlobalOptions.C) {
-		args.push("-C", c);
-	}
 	if (invocation.gitGlobalOptions.gitDir !== undefined) {
 		args.push("--git-dir", invocation.gitGlobalOptions.gitDir);
 	}

@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from "bun:test";
 import { mkdtemp, rm, mkdir, writeFile, realpath } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { analyzeCommand } from "../src/commit-command.ts";
 import { resolveCommit } from "../src/git-resolver.ts";
 import type { CommitInvocation, MessageSource, GitGlobalOptions, CommitOptions } from "../src/types.ts";
 
@@ -636,28 +637,47 @@ describe("resolveCommit — git -C global option", () => {
 		commitHash = await makeCommit(repoDir, "feat: hello from -C");
 	});
 
-	it("resolves repo root when git -C points into the repo", async () => {
+	it("resolves parsed absolute, relative, and repeated -C paths once", async () => {
 		const sub = join(repoDir, "sub");
 		await mkdir(sub, { recursive: true });
+		for (const command of [
+			`git -C "${repoDir}" commit -m 'feat: via -C'`,
+			"git -C global-C-repo commit -m 'feat: via -C'",
+			"git -C global-C-repo -C sub -C .. commit -m 'feat: via -C'",
+		]) {
+			const analysis = analyzeCommand(command, tmpBase);
+			if (analysis.kind !== "commits") throw new Error(`Unexpected analysis: ${analysis.kind}`);
+			const result = await resolveCommit(analysis.invocations[0]!);
+			expect(result.resolution).toBe("lint");
+			if (result.resolution === "lint") {
+				expect(result.repoRoot).toBe(repoDir);
+				expect(result.message).toBe("feat: via -C");
+			}
+		}
+	});
 
-		// effectiveCwd is the temp root, but -C points to the actual repo
-		const invocation: CommitInvocation = {
-			tokenStart: 0,
-			tokenEnd: 10,
-			effectiveCwd: tmpBase,
-			gitGlobalOptions: {
-				...defaultGlobalOptions,
-				C: [repoDir],
-			},
-			commitOptions: defaultCommitOptions,
-			messageSource: { kind: "inline", paragraphs: ["feat: via -C"] },
-			cleanupOverride: undefined,
-			isGeneratedMessage: false,
-		};
-		const result = await resolveCommit(invocation);
-		expect(result.resolution).toBe("lint");
-		if (result.resolution === "lint") {
-			expect(result.repoRoot).toBe(repoDir);
+	it("expands unquoted home paths but preserves quoted and escaped tildes", async () => {
+		const originalHome = process.env.HOME;
+		process.env.HOME = tmpBase;
+		try {
+			for (const command of [
+				"git -C ~/global-C-repo commit -m 'feat: home path'",
+				"cd ~/global-C-repo && git commit -m 'feat: home path'",
+			]) {
+				const analysis = analyzeCommand(command, tmpBase);
+				if (analysis.kind !== "commits") throw new Error(`Unexpected analysis: ${analysis.kind}`);
+				const result = await resolveCommit(analysis.invocations[0]!);
+				expect(result.resolution).toBe("lint");
+				if (result.resolution === "lint") expect(result.repoRoot).toBe(repoDir);
+			}
+			for (const path of ['"~/global-C-repo"', "'~/global-C-repo'", "\\~/global-C-repo"]) {
+				const analysis = analyzeCommand(`git -C ${path} commit -m 'feat: literal path'`, tmpBase);
+				if (analysis.kind !== "commits") throw new Error(`Unexpected analysis: ${analysis.kind}`);
+				expect(analysis.invocations[0]!.effectiveCwd).toBe(join(tmpBase, "~", "global-C-repo"));
+			}
+		} finally {
+			if (originalHome === undefined) delete process.env.HOME;
+			else process.env.HOME = originalHome;
 		}
 	});
 });
