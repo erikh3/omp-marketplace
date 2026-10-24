@@ -55,6 +55,17 @@ git --no-pager commit -m "feat: add widget"
 git --git-dir=.git commit -m "feat: add widget"
 ```
 
+The Bash `cwd` field accepts `~` and `~/...`. In shell commands, unquoted
+word-initial `~` expands to the home directory; quoted and escaped tildes remain
+literal. Relative and repeated Git `-C` options apply in order, exactly once.
+
+## Changes in 0.1.1
+
+Fixed home-directory paths causing the resolver to spawn Git with a nonexistent
+working directory. Fixed relative Git `-C` paths being applied twice, which could
+skip commit-message validation.
+
+
 ## Skipped forms (no validation)
 
 These forms are explicitly allowed to execute without lint checks:

@@ -14,6 +14,8 @@
  *   - cwd tracking.
  */
 
+import { homedir } from "node:os";
+
 // ---------------------------------------------------------------------------
 // Public types
 // ---------------------------------------------------------------------------
@@ -288,6 +290,15 @@ class CommandSplitter {
 			// ---------------------------------------------------------------
 			// Unquoted
 			// ---------------------------------------------------------------
+
+			// Only an unquoted word-initial tilde expands; quoted and escaped tildes stay literal.
+			if (ch === "~" && this.tokenStart === -1 &&
+				(this.pos + 1 === len || src[this.pos + 1] === "/" || /[\s;&|<>]/.test(src[this.pos + 1]!))) {
+				this.ensureTokenStarted();
+				this.appendLiteral(process.env.HOME ?? homedir());
+				this.pos++;
+				continue;
+			}
 
 			// Backslash
 			if (ch === "\\") {

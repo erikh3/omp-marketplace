@@ -30,6 +30,7 @@ import { isToolCallEventType as isToolCallEventTypeFn } from "@oh-my-pi/pi-codin
 
 import type { ConfigLoadResult } from "./types.ts";
 
+import { homedir } from "node:os";
 import { resolve } from "node:path";
 
 import { analyzeCommand } from "./commit-command.ts";
@@ -129,9 +130,10 @@ export default function gitCommitLinterExtension(pi: ExtensionAPI): void {
 		const { toolCallId, input } = event;
 		const rawCommand = input.command;
 
-		// Resolve effective base cwd: event.input.cwd resolved against ctx.cwd.
-		const baseCwd = input.cwd
-			? resolve(ctx.cwd, input.cwd)
+		const requestedCwd = input.cwd;
+		const home = process.env.HOME ?? homedir();
+		const baseCwd = requestedCwd
+			? resolve(ctx.cwd, requestedCwd === "~" ? home : requestedCwd.startsWith("~/") ? home + requestedCwd.slice(1) : requestedCwd)
 			: ctx.cwd;
 
 		// Step 1: Parse the command.
