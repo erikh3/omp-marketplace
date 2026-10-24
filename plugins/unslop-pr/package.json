@@ -1,6 +1,6 @@
 {
   "name": "unslop-pr",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "Conditional TTSR rules that prompt an unslop review of PR titles and descriptions",
   "omp": {}
 }

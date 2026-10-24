@@ -7,4 +7,4 @@ scope: "tool:write(*create_pull_request), tool:write(*update_pull_request)"
 interruptMode: always
 ---
 
-Apply skill://unslop to the PR title and description. Review the matched wording; rewrite only if warranted. Keep necessary technical terms, quotations, and literals unchanged, then retry.
+Apply skill://unslop; rewrite PR wording only if warranted, preserve necessary terms and literals, then retry.
