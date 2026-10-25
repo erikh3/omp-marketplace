@@ -1,6 +1,6 @@
 {
   "name": "hai-proxy-companion",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Shows HAI Proxy spend estimates and context growth, and exits cleanly when HAI returns DAILY_CAP_EXCEEDED.",
   "private": true,
   "omp": {

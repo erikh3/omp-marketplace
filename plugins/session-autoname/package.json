@@ -1,6 +1,6 @@
 {
   "name": "session-autoname",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "Auto-name the session from its logs via the smol model when /name or /rename is issued without a title.",
   "private": true,
   "omp": {

@@ -1,6 +1,6 @@
 {
   "name": "github-comment-guard",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Blocks pull request reviews and human-authored GitHub comment replies. Gate is on by default; inspect or change it with /github-comment-gate.",
   "private": true,
   "omp": {

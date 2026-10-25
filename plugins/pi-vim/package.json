@@ -1,6 +1,6 @@
 {
   "name": "pi-vim",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "Vim-style modal editing (NORMAL/INSERT) for the omp prompt editor.",
   "private": true,
   "omp": {
