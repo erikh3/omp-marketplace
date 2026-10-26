@@ -4,7 +4,7 @@ Animated Obsidian-aware startup widget for omp.
 
 ![Animated omp Obsidian welcome screen](assets/welcome.gif)
 
-The plugin activates only when the omp working directory is inside an Obsidian vault. It asks the Obsidian CLI for the active vault first and verifies that the working directory belongs to it. If the CLI is unavailable, fails, or points at another vault, it finds the nearest ancestor containing `.obsidian`. Sessions started in vault subdirectories work without project configuration.
+The plugin activates only when the omp working directory is inside an Obsidian vault. It finds the nearest ancestor containing `.obsidian`, so sessions started in vault subdirectories work without project configuration. It does not call the Obsidian CLI, because on desktop that command launches the full Obsidian app when it is not already running.
 
 The widget shows:
 
