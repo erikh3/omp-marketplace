@@ -12,11 +12,12 @@ The plugin must be installable from this marketplace without a skill, `AGENTS.md
 
 | Command | Behavior |
 | --- | --- |
+| `/speak` | Toggle the current session state using the same enable or disable behavior below. When enabling, immediately show full status. When disabling, show only the off notice. |
 | `/speak on` | Enable deliberate speech notifications for the current session. Append a visible, agent-visible system notice. |
 | `/speak off` | Disable notifications for the current session. Clear queued notifications and stop owned synthesis and playback processes. Append a visible, agent-visible system notice. |
 | `/speak status` | Show session state, playback state, waiting queue depth, queue limit, last playback error, and the parent session's resolved local TTS model, voice, and speed. |
 
-Commands use an exact subcommand. Invalid input reports usage without changing state.
+Nonempty arguments use an exact subcommand. Invalid input reports usage without changing state. Argument completion suggests `on`, `off`, and `status` filtered by the typed prefix. Empty arguments show no suggestions, so Enter on bare `/speak` toggles rather than selecting a subcommand.
 
 ### Defaults and local TTS
 
@@ -118,7 +119,7 @@ A local TTS readiness check is optional. Do not require extensive readiness or d
 2. Every new or resumed session starts disabled with an empty queue and no playback error, regardless of previous state or restored notices. The plugin registers no settings and persists no notification state.
 3. The primary session agent sees `speak_notification` and stable usage guidance from session start. Subagents do not see or invoke the tool.
 4. While disabled, schema-valid tool calls produce no audio, return the disabled result without text validation, and do not queue anything.
-5. `/speak on` enables queueing and appends an agent-visible enabled system notice. Startup and `/speak off` append disabled system notices; the latest notice states the current session state. Startup notices have no visible chip. Toggle chips show only `Speech notifications on.` or `Speech notifications off.`, while full instructions remain in model context.
+5. `/speak on` enables queueing and appends an agent-visible enabled system notice. Startup and `/speak off` append disabled system notices; the latest notice states the current session state. Startup notices have no visible chip. Toggle chips show only `Speech notifications on.` or `Speech notifications off.`, while full instructions remain in model context. Bare `/speak` toggles using those same state transitions, showing full status only when enabling and only the off notice when disabling. Argument completion offers matching `on`, `off`, and `status` options after a typed prefix without intercepting the bare toggle.
 6. `/speak off` clears waiting items, stops owned synthesis and playback processes, and appends the disabled notice. Cancellation works before audio begins as well as during playback, without recording a playback error.
 7. With working local TTS and notifications enabled, three rapid tool calls play in request order without overlap. Each call returns its enqueue acknowledgement without awaiting synthesis or playback.
 8. The fixed capacity of three waiting messages excludes current playback. It rejects only the new excess notification and reports the rejection. Enqueue results report waiting-only position and depth.
