@@ -3,12 +3,15 @@
 Deliberate local speech notifications for the primary OMP agent. Requires OMP 18.16.0 or a compatible version. Notifications start off in every new or resumed session. No plugin settings, skill, or configuration is required.
 
 ```text
+/speak
 /speak on
 /speak status
 /speak off
 ```
 
-`/speak on` enables notifications for this session. `/speak off` clears waiting messages and stops owned synthesis and playback. Startup state is communicated to the agent without a visible chip. Toggles show only `Speech notifications on.` or `Speech notifications off.`; full state instructions stay hidden in model context. Subagents do not receive the tool or its guidance.
+`/speak` toggles notifications. Enabling immediately prints full status; disabling shows only `Speech notifications off.` `/speak on` and `/speak off` set the state explicitly; `/speak status` shows it without changing it. Disabling clears waiting messages and stops owned synthesis and playback. Argument completion suggests `on`, `off`, and `status` after you type a prefix, such as `/speak o` or `/speak s`. Empty arguments show no suggestions so Enter still toggles.
+
+Startup state is communicated to the agent without a visible chip. State changes show `Speech notifications on.` or `Speech notifications off.`; a bare toggle that enables notifications also shows full status below it. Full state instructions stay hidden in model context. Subagents do not receive the tool or its guidance.
 
 When enabled, the primary agent must announce blockers, decision requests, completed or failed long-running operations, and substantial task outcomes without another speech request. It chooses a short message itself. Brief meaningful phase updates are allowed; routine tool progress, greetings, logs, code, and repeated status remain text-only. Related outcomes are combined and events are not announced twice.
 

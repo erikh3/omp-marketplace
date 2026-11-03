@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.1
+
+- Show only the off notice when bare `/speak` disables notifications. Keep full status when it enables them.
+
+## 0.2.0
+
+- Add argument completion for `on`, `off`, and `status` after a typed prefix.
+- Make bare `/speak` toggle notifications and immediately show the resulting status.
+
 ## 0.1.3
 
 - Move unchanged agent guidance into its own source module.

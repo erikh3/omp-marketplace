@@ -97,16 +97,28 @@ export default function speakNotifications(pi: ExtensionAPI) {
 		return { systemPrompt: [..._event.systemPrompt, GUIDANCE] };
 	});
 	pi.registerCommand("speak", {
-		description: "Enable, disable, or inspect deliberate speech notifications: on | off | status",
+		description: "Toggle speech notifications, showing status when enabled, or use on | off | status",
+		getArgumentCompletions(prefix) {
+			if (!prefix || prefix.includes(" ")) return null;
+			const matches = ["on", "off", "status"]
+				.filter(value => value.startsWith(prefix))
+				.map(value => ({ value, label: value }));
+			return matches.length ? matches : null;
+		},
 		async handler(args, ctx) {
 			if (ctx.agent.kind !== "main") return;
-			if (args === "on") {
+			const command = args === "" ? (controller.status().enabled ? "off" : "on") : args;
+			if (command === "on") {
 				controller.enable();
 				notice(true);
-			} else if (args === "off") {
+			} else if (command === "off") {
 				await controller.disable();
 				notice(false);
-			} else if (args === "status") {
+			} else if (command !== "status") {
+				ctx.ui.notify("Usage: /speak [on | off | status]", "warning");
+				return;
+			}
+			if ((args === "" && command === "on") || command === "status") {
 				const state = controller.status();
 				let configuration: string;
 				try {
@@ -118,8 +130,6 @@ export default function speakNotifications(pi: ExtensionAPI) {
 				pi.sendMessage({ customType: "speak-notifications-status", attribution: "agent", display: true,
 					content: `Speech notifications: ${state.enabled ? "on" : "off"}\nPlayback: ${state.activePlayback ? "active" : "idle"}\nWaiting: ${state.queueDepth}/${state.queueLimit}\n\n${configuration}${state.lastPlaybackError ? `\n\nPlayback error: ${state.lastPlaybackError}` : ""}`
 				}, { triggerTurn: false });
-			} else {
-				ctx.ui.notify("Usage: /speak on | off | status", "warning");
 			}
 		}
 	});
