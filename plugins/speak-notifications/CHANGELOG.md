@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.3
+
+- Move unchanged agent guidance into its own source module.
+
 ## 0.1.2
 
 - Format status as separate state and local TTS rows. Omit playback errors when none exist.

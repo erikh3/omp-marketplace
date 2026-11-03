@@ -45,4 +45,4 @@ omp plugin link ./plugins/speak-notifications
 bun scripts/validate-marketplace.ts
 ```
 
-Restart OMP, exercise disabled calls, enable and queue messages, then turn notifications off during synthesis and playback. Verify that subagents cannot see the tool and a resumed session starts disabled. See the repository's `speak-notifications.md` for the complete contract.
+Restart OMP, exercise disabled calls, enable and queue messages, then turn notifications off during synthesis and playback. Verify that subagents cannot see the tool and a resumed session starts disabled. See the [plugin specification](../../docs/specs/speak-notifications-specification.md) for the complete contract.
