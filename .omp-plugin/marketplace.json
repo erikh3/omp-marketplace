@@ -11,6 +11,13 @@
   },
   "plugins": [
     {
+      "name": "speak-notifications",
+      "description": "Deliberate local speech notifications for the primary agent, off by default in each session.",
+      "source": "./speak-notifications",
+      "category": "productivity",
+      "homepage": "https://github.com/erikh3/omp-marketplace/tree/main/plugins/speak-notifications"
+    },
+    {
       "name": "plugins-bin-to-path",
       "description": "Puts each enabled Claude Code plugin's bin/ directory on the Bash tool PATH, so bundled executables run by bare name under omp.",
       "source": "./plugins-bin-to-path",
