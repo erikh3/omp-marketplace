@@ -32,6 +32,7 @@ A local source is any path starting with `./`, `~/`, or `/` that contains
 
 | Plugin | Description |
 | --- | --- |
+| [`speak-notifications`](plugins/speak-notifications) | Deliberate local speech notifications for the primary agent. Off by default; enable each session with `/speak on`. |
 | [`plugins-bin-to-path`](plugins/plugins-bin-to-path) | Puts each enabled omp plugin's `bin/` directory on the Bash tool PATH, so bundled executables run by bare name under omp. |
 | [`herdr-session-agent-name-sync`](plugins/herdr-session-agent-name-sync) | Keeps the current Herdr agent name synchronized with the omp session title. |
 | [`herdr-interactive-tool-block`](plugins/herdr-interactive-tool-block) | Reports the Herdr pane as blocked while a rule says the agent is waiting on the user mid-execution, instead of leaving it stuck in `working`. Modular rules; a new rule is a single file. |
