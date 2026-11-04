@@ -23,7 +23,7 @@ describe("notification checkpoints", () => {
 		expect(checkpoints.outcome(true)?.id).not.toBe(first.id);
 	});
 
-	test("releases consumed resolved targets while retaining unresolved count", () => {
+	test("releases consumed unresolved targets while retaining their aggregate count", () => {
 		const checkpoints = new Checkpoints();
 		checkpoints.enable();
 		checkpoints.startTask();
@@ -32,13 +32,15 @@ describe("notification checkpoints", () => {
 			const checkpoint = checkpoints.attention(target);
 			expect(checkpoint).toBeDefined();
 			if (!checkpoint) throw new Error("expected attention checkpoint");
-			checkpoints.resolve(checkpoint, "silent");
+			expect(checkpoints.markUnresolved(checkpoint, "no safe recovery")).toBe(true);
 			checkpoints.consumeTarget(target);
+			expect(checkpoints.find(checkpoint.id, "attention")).toBeUndefined();
+			expect(checkpoints.isResolved(checkpoint.id, "attention")).toBe(false);
+			expect(checkpoints.resolve(checkpoint, "silent")).toBe("stale");
 		}
-		const unresolved = checkpoints.attention(canonicalPlanTarget("/plan.md", "content"));
-		if (!unresolved) throw new Error("expected attention checkpoint");
-		expect(checkpoints.markUnresolved(unresolved, "no safe recovery")).toBe(true);
-		expect(checkpoints.unresolvedCount()).toBe(1);
+		expect(checkpoints.unresolvedCount()).toBe(20);
+		expect(checkpoints.attention(canonicalPlanTarget("/plan.md", "content"))).toBeDefined();
+		expect(checkpoints.outcome()).toBeDefined();
 	});
 
 	test("invalidates old decisions on disable and task change", () => {
@@ -55,21 +57,31 @@ describe("notification checkpoints", () => {
 		expect(checkpoints.find(next.id, "outcome")).toBeUndefined();
 	});
 
-	test("does not retain unresolved decisions as accepted identifier tombstones", () => {
+	test("retires superseded unresolved outcomes while retaining their aggregate count", () => {
 		const checkpoints = new Checkpoints();
 		checkpoints.enable();
-		const checkpoint = checkpoints.attention(canonicalToolTarget("ask", { id: "remove" }));
-		if (!checkpoint) throw new Error("expected attention checkpoint");
-		expect(checkpoints.markUnresolved(checkpoint, "no safe recovery")).toBe(true);
-		checkpoints.consumeTarget(checkpoint.target!);
-		expect(checkpoints.isResolved(checkpoint.id, "attention")).toBe(false);
-		expect(checkpoints.find(checkpoint.id, "attention")?.decision).toBe("unresolved");
+		let outcome = checkpoints.outcome();
+		if (!outcome) throw new Error("expected outcome checkpoint");
+		for (let index = 0; index < 20; index++) {
+			expect(checkpoints.markUnresolved(outcome, "decision omitted")).toBe(true);
+			const next = checkpoints.outcome(true);
+			expect(next).toBeDefined();
+			if (!next) throw new Error("expected replacement outcome checkpoint");
+			expect(checkpoints.find(outcome.id, "outcome")).toBeUndefined();
+			expect(checkpoints.isResolved(outcome.id, "outcome")).toBe(false);
+			outcome = next;
+		}
+		expect(checkpoints.unresolvedCount()).toBe(20);
 	});
 
-	test("rejects attention admission after the active checkpoint bound", () => {
+	test("bounds unconsumed pending attention while reusing its target", () => {
 		const checkpoints = new Checkpoints();
 		checkpoints.enable();
-		for (let index = 0; index < 16; index++) expect(checkpoints.attention(canonicalToolTarget("ask", { id: index }))).toBeDefined();
+		const target = canonicalToolTarget("ask", { id: 0 });
+		const first = checkpoints.attention(target);
+		expect(first).toBeDefined();
+		expect(checkpoints.attention(target)).toBe(first);
+		for (let index = 1; index < 16; index++) expect(checkpoints.attention(canonicalToolTarget("ask", { id: index }))).toBeDefined();
 		expect(checkpoints.attention(canonicalToolTarget("ask", { id: 16 }))).toBeUndefined();
 	});
 });

@@ -2,72 +2,100 @@
 
 ## Current state
 
-The unshipped `speak-notifications` plugin remains at version `0.4.0` on branch `speech-decision-reminders`. This report covers the current implementation prepared for a draft pull request. It was not installed or linked.
+The unshipped `speak-notifications` plugin is version `0.4.1` on branch `speech-decision-reminders`, following review of draft PR #63 at `8f8807b60543460a6888c47a69ad1931be35095f`. All six confirmed review defects are corrected. The fresh real-model smoke exercised the corrected source directly without installing or linking it. The code fixes passed deterministic verification, but the smoke did not establish reliable notification significance judgment. Do not treat this report as release approval.
 
-The implementation keeps speech session-local and disabled by default. The primary agent has one registered `speak_notification` tool. It records `speak` or `silent` decisions for outcomes, attention boundaries, and milestones. Local TTS, the FIFO worker, cancellation, cooldown, and existing command behavior remain unchanged.
+Speech remains session-local, primary-only, and disabled by default. Queue acceptance is decision coverage, not proof that a human heard the notification.
 
-## Checkpoint behavior
+## Corrected review defects
 
-- Checkpoints bind to the current task and enablement generations.
-- A first enabled work result makes a current task outcome ID available. The ID is optional and only valid for `purpose: "outcome"`.
-- Existing candidate thresholds still decide when an outcome becomes required. A successful write or edit, three work results, one minute of work, or relevant background work promotes the same outcome ID to required coverage. The promotion does not replace the ID.
-- A required outcome gets one bounded recovery at settlement. Optional routine work gets neither a required decision nor recovery.
-- Attention uses either an exact active-tool boundary or an attention ID that the plugin requested. Outcome IDs cannot satisfy attention decisions. A purpose mismatch returns an actionable error without audio coverage.
-- Tool identity ignores only top-level OMP `i` intent metadata. All other top-level execution arguments remain part of the target.
-- An intercepted `ask` records its preflight `tool_execution_start` as the original blocked dispatch. The next model response can decide. If it omits a decision, the next same-target question becomes unresolved and opens instead of receiving a second recovery block.
-- Live state remains a per-request developer instruction. It is phrased as metadata and tells the agent to answer the user rather than the note. This latest wording has deterministic coverage only.
+| Defect | Correction | Evidence |
+| --- | --- | --- |
+| Nested device cleanup restarted attention recovery | Outer completion retains a blocked inner target; a later accepted or released inner boundary is tracked for actual consumption | Registered regressions and fresh `write xd://ask` interaction |
+| Optional outcome metadata hid and consumed expired timers | Required outcome takes precedence, then due timer, then optional identity; only an injected active-turn timer instruction is consumed | Deterministic active-turn and idle-inspection regressions |
+| Automatic abort retry invalidated task coverage | Aborted `agent_end` invalidates only when the host is not continuing | Pending-coverage continuation and terminal-cancellation regressions |
+| Background candidate state crossed user tasks | New-task reset clears `backgroundResultPending` | Async-result/new-routine-task regression; fresh background task followed by silent quick lookup |
+| Consumed unresolved checkpoints exhausted admission | Retire consumed or superseded unresolved objects while preserving aggregate failure count and no accepted tombstones | More than 16 sequential unresolved attention and outcome regressions |
+| Unresolved silent decision falsely reported acceptance | Reject unresolved silence with `isError` and no playback | Registered unresolved-attention regression |
 
-## Interactive OMP evidence
-
-The completed v2 Sonnet matrix provided these observed results:
-
-- The build task produced its textual result and queued one accepted outcome notification.
-- The routine quick lookup stayed silent.
-- The substantive one-read missing-region investigation gave its textual conclusion before it queued one accepted outcome notification.
-- The prior attention expiry defect was fixed. After an ID-less attention attempt, the question blocked, the next model response supplied `speech-4-2-2`, speech queued, and the same question opened under a new dispatch ID.
-- In a later attention case, the model used the optional outcome ID as an attention ID twice. Both calls were correctly rejected. It then used a plugin-requested attention ID and queued speech before the user choice opened.
-- After the valid negative outcome, the model emitted an extra `No active task to continue: investigation complete before this message arrived.` The task result was already present. This is an output-quality issue. The current passive metadata wording was added after the matrix and has not received another real-model run.
-
-The earlier corrected session also showed one accepted substantial outcome and a silent routine lookup. Its original immediate attention expiry was caused by OMP emitting `tool_execution_start` for the call blocked by `tool_call`, not by model noncompliance.
+Pending timer reads also include active time since expiry without consuming the reminder.
 
 ## Deterministic verification
 
-The current source passed:
+Run from the plugin directory unless stated otherwise:
 
 ```text
-bun test --isolate                 81 pass, 0 fail
-bun run typecheck                  passed
-bun scripts/validate-marketplace.ts passed
-bun test --isolate test/registered-tool.test.ts 18 pass, 0 fail
+bun test --isolate                  87 pass, 0 fail
+bun run typecheck                   passed
+bun scripts/validate-marketplace.ts passed from worktree root
 ```
 
-The registered-tool suite covers current-ID outcome acceptance after one work result, optional-to-required promotion without changing the ID, outcome-versus-attention mismatch rejection, accepted recovery decisions after a blocked preflight call, and release after one omitted recovery response.
+The regressions use real registered tool schema validation and deterministic clocks. No production classifier, provider branch, automatic speech, or final-answer reader was added.
 
-## Known limits
+## Fresh driven OMP smoke
 
-- Queue acceptance confirms coverage only. It does not prove playback completed.
-- The v3 passive metadata wording and the latest purpose guidance have deterministic coverage but no later real-model verification.
-- Models can still issue invalid tool calls. The plugin rejects invalid, stale, mismatched, and queue-rejected decisions. It does not force tool use, manufacture speech, parse final answers, or add provider-specific request handling.
-- Approval and native plan-review waits may have no safe model-decision turn. The plugin keeps those host prompts available and records uncovered waits as unresolved.
-- The empty-response problem belongs to a separate work stream.
+Date: 2026-11-04. OMP 18.16.0. Model: `hai-anthropic/anthropic--claude-4.6-sonnet`.
 
-## Files changed for this task
+The primary agent created Herdr tab `w1R:t8`, pane `w1R:pN`, with named test agent `speech-smoke-pr63`. `/speak on` ran at 20:00:48 UTC before the first task at 20:01:07 UTC. The launch used explicit corrected extension and passive event-recorder paths with ambient extensions, skills, rules, context files, and LSP discovery disabled. No speech instructions were inserted into the natural implementation, lookup, missing-data, background, or release-decision task prompts. The nested transport scenario explicitly requested `write xd://ask` to exercise the reviewed transport defect.
+
+Session ID: `01a1a826-2d09-73d3-80e2-4752a984943f`.
+
+Local evidence:
 
 ```text
-docs/specs/speak-notifications-specification.md
-docs/specs/speech-notification-checkpoints-plan.md
-docs/specs/speech-notification-checkpoints-report.md
-plugins/speak-notifications/CHANGELOG.md
-plugins/speak-notifications/README.md
-plugins/speak-notifications/package.json
-plugins/speak-notifications/src/checkpoints.ts
-plugins/speak-notifications/src/controller.ts
-plugins/speak-notifications/src/guidance.ts
-plugins/speak-notifications/src/index.ts
-plugins/speak-notifications/src/reminder-clock.ts
-plugins/speak-notifications/test/checkpoints.test.ts
-plugins/speak-notifications/test/command.test.ts
-plugins/speak-notifications/test/completion.test.ts
-plugins/speak-notifications/test/registered-tool.test.ts
-plugins/speak-notifications/test/reminder-clock.test.ts
+/tmp/pr63-speech-smoke-20261104/session/2026-11-04T20-00-36-617Z_01a1a826-2d09-73d3-80e2-4752a984943f.jsonl
+/tmp/pr63-speech-smoke-20261104/events.jsonl
+/tmp/pr63-speech-smoke-20261104/source-identity.txt
 ```
+
+These local artifacts may expire. They are not required to understand or resume the implementation. Do not publish raw event or session records.
+
+### Observed behavior
+
+| Scenario | Written result | Notification behavior | Assessment |
+| --- | --- | --- | --- |
+| Build and run summarizer | Correct totals: INFO 3, WARN 1, ERROR 3, orders 5, health 2, alpha 4, beta 3, DB_TIMEOUT 2 | One accepted outcome | Notification passed; final prose overclaimed the fault domain and equated settlements with regions |
+| Quick route lookup | `/orders`, count 5 | No notification | Passed |
+| Substantial missing-region investigation | Identified no region field, but still proposed settlement as a geographic proxy | No notification or explicit silence | Notification acceptance failed; data interpretation also failed |
+| Duplicate-policy question | Choice UI opened; driver selected `Discard exact duplicates`; implementation ran | Initial invalid call supplied both ID and boundary; a revised target got a new attention ID; valid silent recovery preceded the question; one completion outcome | Validation and recovery worked; silence reflected model significance judgment |
+| Awaited background stability check | Five runs produced identical totals, reported PASS | One accepted outcome after the wait returned | Passed |
+| Quick lookup after background work | `2` | No notification or forced recovery | Passed |
+| Material release decision | Asked hold versus settlement-only reporting; session recorded `Hold`; wrote fixture release decision | Proactive speech queued for a different question target, actual question used a valid silent recovery, then one hold outcome | Exact-target validation worked; proactive speech did not cover the changed question |
+| Nested `write xd://ask` | Choice UI opened; driver selected `audit-b.txt`; model returned the filename | Outer-boundary silence did not cover inner ask; one block supplied `speech-8-2-14`; recovery silence accepted; unchanged nested retry executed under a new dispatch ID | Reviewed nested defect fixed; routine filename completion was unnecessarily spoken |
+| Speech off and one summarizer run | Totals unchanged | No notification attempts | Passed |
+
+At 20:06:05 UTC, `/speak status` reported playback idle, waiting `0/3`, unresolved `0`, local model `kokoro`, voice `af_heart`, speed `1.2`, and no retained playback error. The earlier duplicate-policy task did emit one unresolved notice after its recovery decision was omitted for the original target. New-task reset explains the later zero count; it is not proof that no unresolved boundary occurred.
+
+Across the smoke, six speak decisions and four silent decisions were accepted, and one speak decision was rejected for supplying both identifier and boundary. That aggregate is not a success rate: the missing substantial notification and unnecessary routine notification remain failures.
+
+The driver sent the duplicate-policy and nested filename fixture selections. The release-hold selection was recorded by OMP, but this driver sent no selection for that dialog, so its external actor is not established here.
+
+The implementation task emitted two empty terminal responses and an extra final completion acknowledgement after its valid outcome. The model's thinking treated transient speech metadata as the current user request. These are observed output-quality failures, not a confirmed new production-code cause.
+
+The smoke agent shut down at 20:09:37 UTC after speech was switched off. Its tab history remains available. Other agents were left untouched.
+
+### Source identity
+
+Corrected production files were frozen before launch. SHA-256 fingerprints:
+
+```text
+18fc7b48b7a34882601fb1ef77c04fe3bcc66de15112c6b6d866167673354b06 src/index.ts
+c60148b531273ddef2053e3e8e1fad962811085f72dc7e40dc56e1a977400d4b src/checkpoints.ts
+e3dcbc811755f575854d8f251ee78d7fb5a18f10ef89cc22956013342013dd23 src/reminder-clock.ts
+97c5caab0824f6593678fe2286fdd56be8bf297338d0720b7a9afb781328c859 src/guidance.ts
+a2814fb76366cb81480872676d1443b425411bcdfc98c1293e438c4c772b92aa src/controller.ts
+ed8404103e796022d8d8fa11a2b22a10e8dc44ee58df6444ba1ff25ad63d8fea src/playback.ts
+```
+
+## Verification limits
+
+- Real speech queue acceptance and later idle status were observed. Human audibility was not verified. No synthesis error was recorded in the observed status, but it does not individually prove each later playback completed.
+- Timer expiry, repeated unresolved-capacity pressure, and automatic abort ownership were exercised deterministically, not forced inside the real-model session.
+- The background smoke awaited the job through `wait`; the dedicated regression covers an `async-result` message followed by a new task.
+- Real nested ask recovery succeeded. No live Plannotator review window or native approval dialog was opened in this smoke.
+- The model can omit significant notifications, choose inappropriate silence, announce routine results, change targeted arguments, or answer transient metadata. Validation does not guarantee tool selection or correct judgment.
+- Approval and native plan-review waits can lack a safe recovery turn. Uncovered waits remain unresolved without closing or delaying their host prompts.
+- Ordinary empty-response recovery and provider translation remain outside this change.
+
+## Earlier evidence
+
+The pre-review v2 Sonnet matrix showed accepted implementation and one-read outcomes, routine lookup silence, attention recovery after invalid IDs, and an extra metadata-related acknowledgement. It did not capture loaded source fingerprints or establish playback completion. The new smoke above supersedes that evidence for the corrected source and does not claim uniformly successful model behavior.

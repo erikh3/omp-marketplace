@@ -105,7 +105,8 @@ export class ReminderClock {
 
 	/** Returns the pending reminder without consuming or rearming it. */
 	peekReminder(): number | undefined {
-		return this.enabled && this.due && this.isActive() ? this.elapsed : undefined;
+		if (!this.enabled || !this.due || !this.isActive()) return undefined;
+		return this.elapsed + (this.activeSince === undefined ? 0 : this.scheduler.now() - this.activeSince);
 	}
 
 	/** Consumes one pending reminder during active, non-waiting, non-speech work. */

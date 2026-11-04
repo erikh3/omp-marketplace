@@ -97,7 +97,7 @@ export class Checkpoints {
 		this.outcomeRequired = true;
 		if (!newEvidence && this.currentOutcome && this.current(this.currentOutcome)) return this.currentOutcome;
 		if (newEvidence && this.currentOutcome?.decision === "pending") return this.currentOutcome;
-		if (this.currentOutcome) this.rememberResolved(this.currentOutcome);
+		if (this.currentOutcome) this.retire(this.currentOutcome);
 		const checkpoint = this.create("outcome");
 		if (checkpoint) this.currentOutcome = checkpoint;
 		return checkpoint;
@@ -141,7 +141,7 @@ export class Checkpoints {
 		this.byTarget.delete(target);
 		if (!id) return;
 		const checkpoint = this.active.get(id);
-		if (checkpoint?.decision === "speak" || checkpoint?.decision === "silent") this.rememberResolved(checkpoint);
+		if (checkpoint) this.retire(checkpoint);
 	}
 
 	discardTarget(target: string) {
@@ -200,9 +200,10 @@ export class Checkpoints {
 		this.resolvedIds.clear();
 	}
 
-	private rememberResolved(checkpoint: Checkpoint) {
-		if (checkpoint.decision !== "speak" && checkpoint.decision !== "silent") return;
+	private retire(checkpoint: Checkpoint) {
 		this.active.delete(checkpoint.id);
+		if (checkpoint.target && this.byTarget.get(checkpoint.target) === checkpoint.id) this.byTarget.delete(checkpoint.target);
+		if (checkpoint.decision !== "speak" && checkpoint.decision !== "silent") return;
 		this.resolvedIds.delete(checkpoint.id);
 		this.resolvedIds.set(checkpoint.id, checkpoint.purpose);
 		if (this.resolvedIds.size > MAX_RESOLVED_IDS) this.resolvedIds.delete(this.resolvedIds.keys().next().value!);

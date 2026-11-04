@@ -192,6 +192,7 @@ export default function speakNotifications(pi: ExtensionAPI) {
 				if (params.action === "silent") {
 					if (!params.reason?.trim()) return { content: [{ type: "text", text: "A silent decision requires a short reason." }], isError: true };
 					if (!checkpoint) return { content: [{ type: "text", text: "Silent milestone recorded." }], details: { action: "silent", purpose: params.purpose } };
+					if (checkpoint.decision === "unresolved") return { content: [{ type: "text", text: "This checkpoint is unresolved." }], isError: true };
 					const decision = checkpoints.resolve(checkpoint, "silent");
 					if (decision === "accepted") recoveryTurns.delete(checkpoint.id);
 					return { content: [{ type: "text", text: decision === "accepted" ? "Silent decision recorded." : "Decision already recorded." }], details: { action: "silent", purpose: params.purpose } };
@@ -235,7 +236,7 @@ export default function speakNotifications(pi: ExtensionAPI) {
 		if (ctx.agent.kind !== "main") return;
 		currentTurn++;
 		updateActivity(ctx);
-		timerInstructionDelivered = controller.status().enabled && userWaits.size === 0 && !checkpoints.pendingOutcome() && reminderClock.peekReminder() !== undefined;
+		timerInstructionDelivered = false;
 	});
 	pi.on("agent_start", (_event, ctx) => {
 		if (ctx.agent.kind !== "main") return;
@@ -243,6 +244,7 @@ export default function speakNotifications(pi: ExtensionAPI) {
 			pendingUserPrompt = false;
 			workCalls = 0;
 			changedFiles = false;
+			backgroundResultPending = false;
 			taskStarted = performance.now();
 			dispatches.clear();
 			recoveryTurns.clear();
@@ -256,7 +258,7 @@ export default function speakNotifications(pi: ExtensionAPI) {
 		loopActive = false;
 		for (let index = event.messages.length - 1; index >= 0; index--) {
 			const message = event.messages[index];
-			if (message?.role === "assistant" && message.stopReason === "aborted") {
+			if (message?.role === "assistant" && message.stopReason === "aborted" && !event.willContinue) {
 				checkpoints.disable();
 				dispatches.clear();
 				recoveryTurns.clear();
@@ -322,7 +324,7 @@ export default function speakNotifications(pi: ExtensionAPI) {
 		if (event.toolName === "ask") userWaits.delete(`ask:${event.toolCallId}`);
 		const dispatch = dispatches.get(event.toolCallId);
 		if (dispatch) {
-			checkpoints.consumeTarget(dispatch.target);
+			if (!dispatch.blockedCheckpointId) checkpoints.consumeTarget(dispatch.target);
 			dispatches.delete(event.toolCallId);
 		}
 		updateActivity(ctx);
@@ -376,8 +378,10 @@ export default function speakNotifications(pi: ExtensionAPI) {
 			const required = checkpoints.pendingOutcome();
 			const reminder = reminderClock.peekReminder();
 			if (required) content += ` Before finishing or asking for user action, record the pending outcome decision with checkpointId ${required.id}.`;
-			else if (outcome?.decision === "pending") content += ` Current task outcome checkpointId ${outcome.id} is available only for purpose outcome and a substantial result. Routine work needs no decision. Attention needs an exact boundary or a requested attention checkpoint.`;
-			else if (reminder !== undefined) content += ` ${silenceReminder(reminder)}`;
+			else if (reminder !== undefined) {
+				content += ` ${silenceReminder(reminder)}`;
+				if (loopActive) timerInstructionDelivered = true;
+			} else if (outcome?.decision === "pending") content += ` Current task outcome checkpointId ${outcome.id} is available only for purpose outcome and a substantial result. Routine work needs no decision. Attention needs an exact boundary or a requested attention checkpoint.`;
 		}
 		return { messages: [...event.messages, { role: "developer", content: [{ type: "text", text: content }], attribution: "agent", timestamp: Date.now() }] };
 	});
@@ -401,7 +405,11 @@ export default function speakNotifications(pi: ExtensionAPI) {
 		if (!isAsk && !isPlanReview) return;
 		const target = canonicalToolTarget(event.toolName, input);
 		const checkpoint = checkpoints.attention(target);
-		if (!checkpoint || checkpoint.decision !== "pending") return;
+		if (!checkpoint) return;
+		if (checkpoint.decision !== "pending") {
+			dispatches.set(event.toolCallId, { target, checkpointId: checkpoint.id });
+			return;
+		}
 		const recovery = recoveryTurns.get(checkpoint.id);
 		if (recovery) {
 			if (recovery.deadline <= currentTurn && recovery.originCallId !== event.toolCallId) {

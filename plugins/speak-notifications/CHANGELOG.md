@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.4.1
+
+- Preserve blocked attention targets when a nested device transport completes, so unchanged retries use one recovery and can be released.
+- Deliver expired timer assessments before optional outcome metadata and consume them only after an active request receives the instruction.
+- Include continued active work in pending timer elapsed time.
+- Preserve task checkpoint ownership across host-owned automatic abort recovery.
+- Clear background-result candidate state when a new user task begins.
+- Retire consumed or superseded unresolved checkpoints without marking them accepted or exhausting active admission.
+- Reject silent decisions for unresolved checkpoints instead of acknowledging successful coverage.
+
 ## 0.4.0
 
 - Add session-local outcome and attention checkpoints with task and enablement invalidation, canonical tool and plan targets, bounded unresolved status, and idempotent resolved identifiers.

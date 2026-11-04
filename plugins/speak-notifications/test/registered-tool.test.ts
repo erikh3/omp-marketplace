@@ -272,54 +272,121 @@ describe("registered speak_notification tool", () => {
 		} finally { await h.disable(); }
 	});
 
-	test("marks an omitted blocked question unresolved without fabricating a resubmission", async () => {
+	test("releases an intercepted nested ask after its recovery response omits a decision", async () => {
 		const h = harness();
 		try {
 			await h.start();
 			await h.enable();
-			expect(h.event("tool_call", { toolName: "ask", input: question })).toMatchObject({ block: true });
-			expect(h.event("turn_end", {})).toBeUndefined();
-			expect(h.messages.filter(message => message.customType === "speak-notifications-unresolved")).toHaveLength(0);
 			h.startStep();
-			expect(h.event("turn_end", {})).toBeUndefined();
+			h.event("tool_execution_start", { toolCallId: "nested", toolName: "write", args: { path: "plan.md", content: "Draft" } });
+			const blocked = h.event("tool_call", { toolCallId: "nested", toolName: "ask", input: question });
+			expect(blocked).toMatchObject({ block: true });
+			h.event("tool_execution_end", { toolCallId: "nested", toolName: "write" });
+			h.event("turn_end", {});
+			h.startStep();
+			expect(h.event("tool_call", { toolCallId: "resubmitted", toolName: "ask", input: question })).toBeUndefined();
+			expect(h.messages.filter(message => message.customType === "speak-notifications-unresolved")).toHaveLength(1);
+			expect(h.event("tool_call", { toolCallId: "later", toolName: "ask", input: question })).toBeUndefined();
 			expect(h.messages.filter(message => message.customType === "speak-notifications-unresolved")).toHaveLength(1);
 		} finally { await h.disable(); }
 	});
 
-	test("accepts the recovery decision after the blocked ask emits its preflight start", async () => {
+	test("keeps an accepted nested ask recovery valid after the outer call ends", async () => {
+		const h = harness();
+		try {
+			await h.start();
+			await h.enable();
+			h.startStep();
+			h.event("tool_execution_start", { toolCallId: "nested", toolName: "write", args: { path: "plan.md", content: "Draft" } });
+			const blocked = h.event("tool_call", { toolCallId: "nested", toolName: "ask", input: question }) as { reason?: string };
+			expect(blocked).toMatchObject({ block: true });
+			h.event("tool_execution_end", { toolCallId: "nested", toolName: "write" });
+			h.event("turn_end", {});
+			h.startStep();
+			const checkpointId = blocked.reason?.match(/speech-[^ .]+/)?.[0];
+			expect((await h.execute({ action: "silent", purpose: "attention", checkpointId, reason: "The question is clear." })).isError).not.toBe(true);
+			expect(h.event("tool_call", { toolCallId: "resubmitted", toolName: "ask", input: question })).toBeUndefined();
+			expect(h.messages.filter(message => message.customType === "speak-notifications-unresolved")).toHaveLength(0);
+		} finally { await h.disable(); }
+	});
+
+	test("keeps an accepted nested plan review recovery valid after the outer call ends", async () => {
+		const h = harness();
+		const review = { action: "review", planFilePath: "plan.md", planContent: "# Plan" };
+		try {
+			await h.start();
+			await h.enable();
+			h.startStep();
+			h.event("tool_execution_start", { toolCallId: "nested", toolName: "write", args: { path: "plan.md", content: "Draft" } });
+			const blocked = h.event("tool_call", { toolCallId: "nested", toolName: "plannotator", input: review }) as { reason?: string };
+			expect(blocked).toMatchObject({ block: true });
+			h.event("tool_execution_end", { toolCallId: "nested", toolName: "write" });
+			h.event("turn_end", {});
+			h.startStep();
+			const checkpointId = blocked.reason?.match(/speech-[^ .]+/)?.[0];
+			expect((await h.execute({ action: "silent", purpose: "attention", checkpointId, reason: "The review can proceed." })).isError).not.toBe(true);
+			expect(h.event("tool_call", { toolCallId: "resubmitted", toolName: "plannotator", input: review })).toBeUndefined();
+		} finally { await h.disable(); }
+	});
+
+	test("preserves pending coverage through a continuing aborted agent", async () => {
 		const baseline = playbacks.length;
 		const h = harness();
 		try {
 			await h.start();
 			await h.enable();
-			const firstInput = { ...question, i: "Choosing a duplicate policy" };
-			h.startStep();
-			const blocked = h.event("tool_call", { toolCallId: "blocked", toolName: "ask", input: firstInput }) as { reason?: string };
-			expect(blocked).toMatchObject({ block: true });
-			h.event("tool_execution_start", { toolCallId: "blocked", toolName: "ask", args: firstInput });
-			h.event("turn_end", {});
-			h.startStep();
-			const checkpointId = blocked.reason?.match(/speech-[^ .]+/)?.[0];
-			expect(checkpointId).toBeDefined();
-			expect((await h.execute({ action: "speak", purpose: "attention", checkpointId, text: "Please choose the duplicate policy." })).isError).not.toBe(true);
+			h.outcome();
+			const checkpointId = h.checkpointId();
+			h.endAgent({ willContinue: true, messages: [{ role: "assistant", stopReason: "aborted", content: [] }] });
+			expect((await h.execute({ action: "speak", purpose: "outcome", checkpointId, text: "The work completed." })).isError).not.toBe(true);
 			await settleWorker();
 			expect(playbacks).toHaveLength(baseline + 1);
-			const resubmittedInput = { ...question, i: "Selecting duplicate policy" };
-			expect(h.event("tool_call", { toolCallId: "resubmitted", toolName: "ask", input: resubmittedInput })).toBeUndefined();
 		} finally { await h.disable(); }
 	});
 
-	test("releases a question after its recovery response omits a decision", async () => {
+	test("invalidates pending coverage after a terminal aborted agent", async () => {
+		const h = harness();
+		try {
+			await h.start();
+			await h.enable();
+			h.outcome();
+			const checkpointId = h.checkpointId();
+			h.endAgent({ willContinue: false, messages: [{ role: "assistant", stopReason: "aborted", content: [] }] });
+			expect((await h.execute({ action: "silent", purpose: "outcome", checkpointId, reason: "No announcement is useful." })).isError).toBe(true);
+		} finally { await h.disable(); }
+	});
+
+	test("does not recover a completed async result after a new routine task begins", async () => {
+		const h = harness();
+		try {
+			await h.start();
+			await h.enable();
+			h.event("message_end", { message: { role: "custom", customType: "async-result" } });
+			h.beforeStart([]);
+			h.startTurn();
+			h.event("tool_result", { toolName: "read", isError: false });
+			h.endAgent({ messages: [{ role: "assistant", stopReason: "stop", content: [{ type: "text", text: "The requested field is absent." }] }] });
+			expect(h.messages.filter(message => message.customType === "speak-notifications-outcome-recovery")).toHaveLength(0);
+		} finally { await h.disable(); }
+	});
+
+	test("rejects silent decisions for unresolved attention without playback", async () => {
+		const baseline = playbacks.length;
 		const h = harness();
 		try {
 			await h.start();
 			await h.enable();
 			h.startStep();
-			expect(h.event("tool_call", { toolCallId: "blocked", toolName: "ask", input: question })).toMatchObject({ block: true });
+			const blocked = h.event("tool_call", { toolCallId: "blocked", toolName: "ask", input: question }) as { reason?: string };
+			expect(blocked).toMatchObject({ block: true });
 			h.event("tool_execution_start", { toolCallId: "blocked", toolName: "ask", args: question });
 			h.event("turn_end", {});
 			h.startStep();
 			h.event("turn_end", {});
+			const checkpointId = blocked.reason?.match(/speech-[^ .]+/)?.[0];
+			expect((await h.execute({ action: "silent", purpose: "attention", checkpointId, reason: "Too late to decide." })).isError).toBe(true);
+			await settleWorker();
+			expect(playbacks).toHaveLength(baseline);
 			expect(h.event("tool_call", { toolCallId: "released", toolName: "ask", input: question })).toBeUndefined();
 			expect(h.messages.filter(message => message.customType === "speak-notifications-unresolved")).toHaveLength(1);
 		} finally { await h.disable(); }

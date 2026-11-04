@@ -1,8 +1,43 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
 import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import * as zod from "@oh-my-pi/omptype/zod";
 
-import speakNotifications from "../src/index.ts";
+import { ReminderClock } from "../src/reminder-clock.ts";
+
+let now = 0;
+let clock: ReminderClock;
+const timers: { at: number; callback: () => void; cancelled: boolean }[] = [];
+mock.module("../src/reminder-clock.ts", () => ({
+	ReminderClock: class extends ReminderClock {
+		constructor() {
+			super(1000, {
+				now: () => now,
+				setTimeout(callback, delayMs) {
+					const timer = { at: now + delayMs, callback, cancelled: false };
+					timers.push(timer);
+					return timer;
+				},
+				clearTimeout(handle) { (handle as typeof timers[number]).cancelled = true; }
+			});
+			clock = this;
+		}
+	}
+}));
+
+// Install the deterministic clock before evaluating the extension.
+const { default: speakNotifications } = await import("../src/index.ts");
+
+function advance(milliseconds: number) {
+	const target = now + milliseconds;
+	for (;;) {
+		const timer = timers.filter(timer => !timer.cancelled && timer.at <= target).sort((a, b) => a.at - b.at)[0];
+		if (!timer) break;
+		now = timer.at;
+		timer.cancelled = true;
+		timer.callback();
+	}
+	now = target;
+}
 
 type Handler = (event: unknown, ctx: ExtensionContext) => unknown;
 
@@ -73,4 +108,36 @@ describe("checkpoint lifecycle", () => {
 		expect(h.sent).toContainEqual(expect.objectContaining({ customType: "speak-notifications-unresolved" }));
 		await h.disable();
 	});
+	test("delivers an expired timer instead of hiding it behind an optional outcome", async () => {
+		const h = harness();
+		try {
+			await h.enable();
+			h.start();
+			h.event("turn_start", {});
+			h.work("read");
+			h.event("turn_end", {});
+			advance(4000);
+			expect(clock.peekReminder()).toBe(4000);
+			h.event("turn_start", {});
+			expect(contextText(h.context())).toContain("4 seconds of active work");
+			expect(clock.peekReminder()).toBe(4000);
+			h.event("turn_end", {});
+			expect(clock.peekReminder()).toBeUndefined();
+		} finally { await h.disable(); }
+	});
+
+	test("idle context inspection does not consume an expired background timer", async () => {
+		const h = harness();
+		try {
+			await h.enable();
+			clock.setWorking(true);
+			advance(1000);
+			expect(clock.peekReminder()).toBe(1000);
+			h.context();
+			h.event("turn_end", {});
+			clock.setWorking(true);
+			expect(clock.peekReminder()).toBe(1000);
+		} finally { await h.disable(); }
+	});
+
 });

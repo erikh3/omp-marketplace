@@ -2,7 +2,7 @@
 
 ## Status and handoff
 
-Status: implementation is complete and awaiting review. The consolidated [checkpoint report](speech-notification-checkpoints-report.md) records the current implementation, deterministic checks, observed interactive evidence, and unverified real-model limits. The direct-source OMP scenarios in this plan are historical evidence, not a release-ready claim.
+Status: all six PR #63 review defects are corrected in `0.4.1`. Deterministic verification passed, and the primary agent drove a fresh speech-enabled OMP session in a new Herdr tab. The [checkpoint report](speech-notification-checkpoints-report.md) records exact runtime identity, successful paths, and observed significance and output-quality failures. The smoke is not release approval.
 
 This document records the user's final direction. It supersedes the notification-decision and enforcement sections of the earlier speech specification and prototype. Keep the existing command, local TTS, queue, and cancellation contracts unless this document explicitly changes them.
 
@@ -12,7 +12,7 @@ Use the existing writable checkout:
 /Users/I589812/.herdr/worktrees/omp-marketplace/speech-decision-reminders
 ```
 
-Branch: `speech-decision-reminders`. The prototype is uncommitted and uninstalled. Its package version is `0.4.0`. Do not recreate the worktree, discard its changes, or implement on the main checkout. Check current ownership and repository state before editing; another session may have changed them.
+Branch: `speech-decision-reminders`. Draft PR #63 contains the checkpoint implementation; the corrected plugin version is `0.4.1`. It remains uninstalled. Reuse this worktree and preserve unrelated changes. Check current ownership and repository state before editing.
 
 Read `AGENTS.md` and the global git, TypeScript, and review rules before the operations they govern. Do not commit, install, or open a PR unless the user requests it.
 

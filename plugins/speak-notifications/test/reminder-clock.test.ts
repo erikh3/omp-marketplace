@@ -148,6 +148,8 @@ describe("active-work reminder clock", () => {
 		clock.enable();
 		clock.setWorking(true);
 		scheduler.advanceBy(400);
+		expect(clock.peekReminder()).toBe(400);
+		expect(clock.peekReminder()).toBe(400);
 		expect(clock.takeReminder()).toBe(400);
 		scheduler.advanceBy(150);
 		clock.setWorking(false);

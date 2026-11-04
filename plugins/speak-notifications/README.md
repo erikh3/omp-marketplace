@@ -21,6 +21,8 @@ Outcome decisions use the current outcome identifier shown in request context. A
 
 If a candidate task finishes without an outcome decision, one bounded follow-up requests it. OMP delivers that recovery as hidden next-turn context. Before an `ask` or the installed Plannotator review or annotation action without an attention decision, the plugin blocks that operation once and requests a decision before resubmission. OMP emits a preflight execution event for that blocked call. It does not make the decision unresolved. The next model request has one chance to record a decision before a later omitted decision becomes text-only unresolved status. The normal prompt and task result remain available. Approval and native plan-review events occur too late for a safe model turn. The plugin leaves their host prompts available and records uncovered waits as unresolved.
 
+Blocked nested `xd://` transports preserve their inner attention checkpoint until the actual boundary executes. Consumed unresolved boundaries release active capacity while retaining the task's unresolved count. Host-owned automatic abort retries preserve current task decisions; a new user task clears prior background-result candidate state.
+
 The 0.4.0 tool contract replaces text-only calls:
 
 ```text
@@ -34,6 +36,8 @@ The checkpoint identifier requests a decision, not audio. Choose a meaningful fi
 The five-minute countdown measures active work while notifications are enabled. Model requests, thinking, foreground tools, and running background jobs count. Idle time with no running jobs pauses the remaining interval. Waiting for a user answer, tool approval, or plan review also pauses it, even when background jobs run. Queued speech pauses it through synthesis and playback. Successful playback resets the interval; enqueue acceptance alone does not count as success. Failures preserve elapsed active silence but defer the next assessment for five more active minutes.
 
 Expiry retains one pending assessment until the next model request. It does not interrupt work or wake an idle agent. The agent may announce useful new information or continue silently. Optional milestones normally occur at most once per five minutes; final outcomes and urgent actions do not wait. Timer reminders repeat at most once per five active minutes and never require invented progress. Turning speech off resets and freezes the timer and clears pending reminders. Resume and shutdown also clear it. Explicit user requests for silence take precedence.
+
+An expired timer assessment takes precedence over optional outcome metadata, but required outcome decisions take precedence over the timer. Context inspection does not consume a reminder. Consumption occurs only after an active model turn receives its timer instruction.
 
 ## Playback and limits
 
