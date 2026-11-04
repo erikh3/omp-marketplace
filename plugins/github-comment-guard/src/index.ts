@@ -3,7 +3,7 @@
  * and from replying to human-authored GitHub comments. Replies are allowed only
  * for bot-authored comments.
  *
- * Gate is on by default. `/github-comment-gate [on|off]` shows or changes it.
+ * Gate is on by default. `/github-comment-gate` toggles it; `status` inspects it.
  * State persistence is configurable through the plugin's `persistGateState` setting.
  */
 
@@ -12,6 +12,7 @@ import type {
   ExtensionCommandContext,
   ToolCallEvent,
 } from "@oh-my-pi/pi-coding-agent";
+import { Box } from "@oh-my-pi/pi-tui";
 import { getAgentDir } from "@oh-my-pi/pi-coding-agent";
 import { getPluginSettings } from "@oh-my-pi/pi-coding-agent/extensibility/plugins";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
@@ -227,35 +228,64 @@ export default async function commentGuard(
   const persist = options?.saveGateState ?? saveState;
   pi.logger.info(`github-comment-guard: loaded, gate=${state.gateEnabled ? "on" : "off"}`);
 
-  // ── /github-comment-gate command ─────────────────────────────────────────
+  pi.registerMessageRenderer<{ gateEnabled: boolean }>("github-comment-gate-state", (message, _options, theme) =>
+    new pi.pi.Text(theme.fg(message.details?.gateEnabled ? "success" : "warning",
+      `${theme.cmd.shield ? `${theme.cmd.shield} ` : ""}GitHub gate ${message.details?.gateEnabled ? "on" : "off"}.`), 0, 0));
+  pi.registerMessageRenderer<{ gateEnabled: boolean; persistGateState: boolean }>("github-comment-gate-status", (message, _options, theme) => {
+    const enabled = message.details?.gateEnabled ?? false;
+    const mode = message.details?.persistGateState ? "persistent" : "session-only";
+    const header = theme.fg(enabled ? "success" : "warning",
+      theme.bold(`${theme.cmd.shield ? `${theme.cmd.shield} ` : ""}GitHub gate ${enabled ? "ON" : "OFF"}`));
+    const restricted = theme.fg(enabled ? "muted" : "success",
+      `${enabled ? theme.status.disabled : theme.status.success} ${enabled ? "Blocked" : "Allowed"}`);
+    const allowed = theme.fg("success", `${theme.status.success} Allowed`);
+    const box = new Box(1, 1, text => theme.bg("customMessageBg", text));
+    box.setBorder({ chars: theme.boxRound, color: text => theme.fg("borderMuted", text) });
+    box.addChild(new pi.pi.Text(`${header}  ${theme.fg("customMessageText", mode)}\n${restricted}  ${theme.fg("customMessageText", "Reviews, human replies")}\n${allowed}  ${theme.fg("customMessageText", "Bot replies, top-level comments")}`, 0, 0));
+    return box;
+  });
 
   pi.registerCommand("github-comment-gate", {
-    description: "Show or set the bot-comment-only gate. Usage: /github-comment-gate [on|off]",
+    description: "Toggle the GitHub comment gate, showing status when enabled, or use on | off | status",
+    getArgumentCompletions(prefix) {
+      if (!prefix || /\s/.test(prefix)) return null;
+      const matches = ["on", "off", "status"]
+        .filter(value => value.startsWith(prefix.toLowerCase()))
+        .map(value => ({ value, label: value }));
+      return matches.length ? matches : null;
+    },
     handler: async (args: string, ctx: ExtensionCommandContext): Promise<void> => {
       const arg = args.trim().toLowerCase();
-
-      if (arg === "on") {
-        state.gateEnabled = true;
-      } else if (arg === "off") {
-        state.gateEnabled = false;
-      } else if (arg !== "") {
-        ctx.ui.notify(
-          `github-comment-guard: unknown argument "${args}". Use: /github-comment-gate [on|off]`,
-          "error",
-        );
+      const command = arg === "" ? (state.gateEnabled ? "off" : "on") : arg;
+      if (command !== "on" && command !== "off" && command !== "status") {
+        ctx.ui.notify("Usage: /github-comment-gate [on | off | status]", "warning");
         return;
       }
 
-      if (arg !== "" && persistGateState) {
-        persist(state);
+      if (command !== "status") {
+        state.gateEnabled = command === "on";
+        if (persistGateState) persist(state);
         pi.logger.info(`github-comment-guard: gate set to ${state.gateEnabled}`);
+        pi.sendMessage({
+          customType: "github-comment-gate-state",
+          content: state.gateEnabled
+            ? "GitHub comment gate on. Pull request reviews and replies to human comments are blocked. Replies to bot comments remain allowed."
+            : "GitHub comment gate off. Pull request reviews and replies to human comments are allowed.",
+          details: { gateEnabled: state.gateEnabled },
+          display: true,
+          attribution: "agent",
+        }, { triggerTurn: false });
       }
-      ctx.ui.notify(
-        state.gateEnabled
-          ? "github-comment-guard: 🔒 Gate ON. Agent can only reply to bot comments"
-          : "github-comment-guard: Gate OFF. Agent can reply to any comment",
-        "info",
-      );
+
+      if (command === "status" || (arg === "" && command === "on")) {
+        pi.sendMessage({
+          customType: "github-comment-gate-status",
+          content: `GitHub comment gate: ${state.gateEnabled ? "on" : "off"}\nPull request reviews: ${state.gateEnabled ? "blocked" : "allowed"}\nHuman comment replies: ${state.gateEnabled ? "blocked" : "allowed"}\nBot comment replies: allowed\nTop-level comments: allowed\n\nRemember state: ${persistGateState ? "on" : "off"}`,
+          details: { gateEnabled: state.gateEnabled, persistGateState },
+          display: true,
+          attribution: "agent",
+        }, { triggerTurn: false });
+      }
     },
   });
 

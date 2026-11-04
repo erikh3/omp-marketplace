@@ -41,11 +41,20 @@ Use the command to inspect or change it:
 
 ```text
 /github-comment-gate
+/github-comment-gate status
 /github-comment-gate on
 /github-comment-gate off
 ```
 
-Calling `/github-comment-gate` without an argument reports the current state.
+Calling `/github-comment-gate` without an argument toggles the gate. Turning it on shows a compact notice and a status card. Turning it off shows only a shield-marked `GitHub gate off.` notice.
+
+Use `/github-comment-gate status` to inspect the gate without changing it. The three-row card groups review and human-reply permissions, bot and top-level comment permissions, and shows `persistent` or `session-only` beside the state. It retains OMP's custom-message background, body colors, and muted border. ON, Allowed, and their icons are green; OFF and its shield are amber; Blocked and its icon are muted. Toggle notices use the same state colors.
+
+Shield, blocked, and allowed icons follow OMP's active symbol preset: Nerd Font, Unicode, or ASCII. Text labels keep the meaning readable without color.
+
+Explicit `on` and `off` commands set the state without toggling and show a compact notice. Argument completion suggests `on`, `off`, and `status` after a typed prefix. Bare command completion leaves the toggle intact.
+
+During agent work, the command changes the gate immediately, but OMP queues its transcript messages until the next response or tool boundary. These messages enter model context and can cause an extra model step. Display timing does not postpone enforcement for subsequent tool calls.
 
 Set `persistGateState` in the plugin settings to control whether changes survive a restart. It defaults to `true`.
 
@@ -69,6 +78,7 @@ For local development:
 
 ```sh
 bun install
+bun test
 bun run typecheck
 omp plugin link ./plugins/github-comment-guard
 ```
@@ -76,3 +86,27 @@ omp plugin link ./plugins/github-comment-guard
 ## Limits
 
 The guard only sees tool calls made through the supported MCP tools or recognized Bash command forms. Other GitHub clients, unrecognized command syntax, and direct HTTP requests are outside its scope.
+
+## Changes in 0.2.0
+
+- Bare `/github-comment-gate` now toggles instead of reporting status. Use `/github-comment-gate status` for a read-only check.
+- Add a status card, compact state notices, and argument completion, matching the speech notification command UI.
+
+## Changes in 0.2.1
+
+- Replace the generic message header and verbose status rows with a three-row, icon-based card.
+- Use theme colors and symbol presets for the card and compact toggle notices.
+
+## Changes in 0.2.2
+
+- Restore the custom-message card colors and padding while retaining compact text and themed icons.
+- Keep colored toggle notices and document OMP's deferred message delivery during agent work.
+
+## Changes in 0.2.3
+
+- Color state headings, permission labels, and their icons consistently with the toggle notices.
+- Retain the custom-message background, neutral descriptions, and muted border.
+
+## Changes in 0.2.4
+
+- Mute the Blocked label and icon while preserving the green ON/Allowed and amber OFF colors.

@@ -12,6 +12,7 @@ function makeApi(
 	const saveGateState = mock(() => {});
 	let handler: ToolCallHandler | undefined;
 	let commandHandler: CommandHandler | undefined;
+	const messages: { customType: string; content: string; details?: { gateEnabled: boolean } }[] = [];
 	const exec = mock(async (_command: string, args: string[]) => {
 		if (args[1]?.includes("/pulls/comments/")) {
 			return { code: 0, stdout: JSON.stringify({ user: { login: author.login } }), stderr: "" };
@@ -24,6 +25,8 @@ function makeApi(
 		registerCommand(_name: string, command: { handler: CommandHandler }) {
 			commandHandler = command.handler;
 		},
+		registerMessageRenderer() {},
+		sendMessage(message: typeof messages[number]) { messages.push(message); },
 		on(event: string, callback: ToolCallHandler) {
 			if (event === "tool_call") handler = callback;
 		},
@@ -35,7 +38,7 @@ function makeApi(
 	});
 	if (!handler) throw new Error("tool_call handler was not registered");
 	if (!commandHandler) throw new Error("command handler was not registered");
-	return { handler, commandHandler, exec, saveGateState };
+	return { handler, commandHandler, messages, exec, saveGateState };
 }
 function event(toolName: string, input: Record<string, unknown>) {
 	return { toolName, input } as ToolCallEvent;
@@ -150,34 +153,25 @@ describe("github-comment-guard", () => {
 		expect(exec).not.toHaveBeenCalled();
 	});
 
-	test("reports status without changing the gate", async () => {
-		const { handler, commandHandler } = makeApi({ login: "octocat", type: "User" });
-		const notify = mock(() => {});
-		await commandHandler("", { ui: { notify } });
-
-		expect(notify).toHaveBeenCalledWith(
-			"github-comment-guard: 🔒 Gate ON. Agent can only reply to bot comments",
-			"info",
-		);
-		const result = await handler(event(
-			"mcp__tools_github_mcp__add_reply_to_pull_request_comment",
-			{ owner: "owner", repo: "repo", pullNumber: 7, commentId: 42, body: "reply" },
-		));
-		expect(result).toEqual(expect.objectContaining({ block: true }));
+	test("status leaves both gate states and persistence unchanged", async () => {
+		for (const gateEnabled of [true, false]) {
+			const { handler, commandHandler, saveGateState } = makeApi(
+				{ login: "octocat", type: "User" }, { gateEnabled, persistGateState: true },
+			);
+			await commandHandler("status", { ui: { notify() {} } });
+			const result = await handler(event("mcp__tools_github_mcp__add_comment_to_pending_review", {}));
+			if (gateEnabled) expect(result).toEqual(expect.objectContaining({ block: true }));
+			else expect(result).toBeUndefined();
+			expect(saveGateState).not.toHaveBeenCalled();
+		}
 	});
 
 	test("does not persist command changes when persistence is disabled", async () => {
-		const { commandHandler, saveGateState } = makeApi(
-			{ login: "octocat", type: "User" },
-			{ persistGateState: false },
+		const { handler, commandHandler, saveGateState } = makeApi(
+			{ login: "octocat", type: "User" }, { persistGateState: false },
 		);
-		const notify = mock(() => {});
-		await commandHandler("off", { ui: { notify } });
-
-		expect(notify).toHaveBeenCalledWith(
-			"github-comment-guard: Gate OFF. Agent can reply to any comment",
-			"info",
-		);
+		await commandHandler("off", { ui: { notify() {} } });
+		expect(await handler(event("mcp__tools_github_mcp__add_comment_to_pending_review", {}))).toBeUndefined();
 		expect(saveGateState).not.toHaveBeenCalled();
 	});
 
@@ -189,5 +183,47 @@ describe("github-comment-guard", () => {
 		await commandHandler("off", { ui: { notify() {} } });
 
 		expect(saveGateState).toHaveBeenCalledWith({ gateEnabled: false });
+	});
+
+	test("bare command toggles the gate and persists each transition", async () => {
+		const { handler, commandHandler, saveGateState } = makeApi(
+			{ login: "octocat", type: "User" }, { persistGateState: true },
+		);
+		await commandHandler("", { ui: { notify() {} } });
+		expect(await handler(event("mcp__tools_github_mcp__add_comment_to_pending_review", {}))).toBeUndefined();
+		expect(saveGateState).toHaveBeenLastCalledWith({ gateEnabled: false });
+		await commandHandler("", { ui: { notify() {} } });
+		expect(await handler(event("mcp__tools_github_mcp__add_comment_to_pending_review", {})))
+			.toEqual(expect.objectContaining({ block: true }));
+		expect(saveGateState).toHaveBeenLastCalledWith({ gateEnabled: true });
+	});
+
+	test("explicit commands remain idempotent and accept existing argument normalization", async () => {
+		const { handler, commandHandler } = makeApi({ login: "octocat", type: "User" });
+		for (const command of ["off", " OFF "]) {
+			await commandHandler(command, { ui: { notify() {} } });
+			expect(await handler(event("mcp__tools_github_mcp__add_comment_to_pending_review", {}))).toBeUndefined();
+		}
+		for (const command of ["on", " ON "]) {
+			await commandHandler(command, { ui: { notify() {} } });
+			expect(await handler(event("mcp__tools_github_mcp__add_comment_to_pending_review", {})))
+				.toEqual(expect.objectContaining({ block: true }));
+		}
+	});
+
+	test("invalid arguments warn without changing either gate state", async () => {
+		for (const gateEnabled of [true, false]) {
+			const { handler, commandHandler, messages, saveGateState } = makeApi(
+				{ login: "octocat", type: "User" }, { gateEnabled, persistGateState: true },
+			);
+			const notify = mock(() => {});
+			for (const command of ["unknown", "on off"]) await commandHandler(command, { ui: { notify } });
+			expect(notify).toHaveBeenCalledTimes(2);
+			expect(messages).toHaveLength(0);
+			expect(saveGateState).not.toHaveBeenCalled();
+			const result = await handler(event("mcp__tools_github_mcp__add_comment_to_pending_review", {}));
+			if (gateEnabled) expect(result).toEqual(expect.objectContaining({ block: true }));
+			else expect(result).toBeUndefined();
+		}
 	});
 });
