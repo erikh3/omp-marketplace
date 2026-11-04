@@ -1,14 +1,21 @@
 import type { ExtensionAPI, ExtensionContext, Settings } from "@oh-my-pi/pi-coding-agent";
 
 import { NotificationController } from "./controller.ts";
-import { GUIDANCE } from "./guidance.ts";
+import { COMPLETION_CHECK, GUIDANCE, silenceReminder } from "./guidance.ts";
 import { startLocalPlayback } from "./playback.ts";
 import type { LocalPlaybackOptions } from "./playback.ts";
+import { ReminderClock } from "./reminder-clock.ts";
 
 export default function speakNotifications(pi: ExtensionAPI) {
 	let registered = false;
 	let context: ExtensionContext;
 	let sessionSettings: Settings;
+	let workCalls = 0;
+	let changedFiles = false;
+	let completionChecked = false;
+	let taskStarted = 0;
+	// Expiry stays pending until the next model request, including after a tool wait.
+	const reminderClock = new ReminderClock();
 
 	const parameters = pi.zod.object({ text: pi.zod.string() });
 	// Compiled OMP resolves these host subpaths at runtime, not during static graph loading.
@@ -42,7 +49,7 @@ export default function speakNotifications(pi: ExtensionAPI) {
 		pi.sendMessage({
 			customType: "speak-notifications-state",
 			content: enabled
-				? "Speech notifications are enabled for this session. You MUST notify the user of blockers and decision requests, completion or failure of long-running operations, and the final outcome of a substantial task. Choose the message yourself using speak_notification; do not wait for a speech request. Keep routine tool progress in text."
+				? "Speech notifications are enabled for this session. Announce substantial task outcomes and user-action blockers using speak_notification. Choose significance and wording yourself. Keep routine progress in text."
 				: "Speech notifications are disabled for this session. Do not call speak_notification unless the user subsequently enables notifications.",
 			details: { enabled },
 			display,
@@ -51,16 +58,21 @@ export default function speakNotifications(pi: ExtensionAPI) {
 	}
 
 	const controller = new NotificationController(
-		text => startLocalPlayback(text, resolvePlaybackOptions()),
+		text => {
+			reminderClock.playbackStarted();
+			return startLocalPlayback(text, resolvePlaybackOptions());
+		},
 		message => {
 			context.ui.notify(`Speak notifications: ${message}`, "error");
 			pi.sendMessage({ customType: "speak-notifications-error", content: `Speech notification failed: ${message}`,
 				display: true, attribution: "agent" }, { triggerTurn: false });
-		}
+		},
+		success => reminderClock.playbackFinished(success)
 	);
 
 	async function initialize(ctx: ExtensionContext) {
 		if (ctx.agent.kind !== "main") return;
+		reminderClock.disable();
 		await controller.reset();
 		context = ctx;
 		apis = await hostApis;
@@ -71,11 +83,14 @@ export default function speakNotifications(pi: ExtensionAPI) {
 			pi.registerTool({
 				name: "speak_notification",
 				label: "Speech notification",
-				description: "Queue deliberate local speech for the primary agent. When enabled, MUST announce blockers, decision requests, long-running operation completion/failure, and substantial task outcomes. Choose short wording yourself; no routine tool progress.",
+				description: "Queue short local speech for the primary agent. When enabled, announce each substantial task outcome and user-action blocker. Judge significance yourself; no routine tool chatter. Timer reminders permit silence when nothing merits speech.",
 				loadMode: "essential",
 				parameters,
 				async execute(_id, params) {
 					const result = controller.enqueue(params.text);
+					if (result.accepted) {
+						reminderClock.playbackStarted();
+					}
 					return { content: [{ type: "text", text: result.message }], details: result, isError: !result.accepted && controller.status().enabled };
 				}
 			});
@@ -88,13 +103,45 @@ export default function speakNotifications(pi: ExtensionAPI) {
 	pi.on("session_start", async (_event, ctx) => initialize(ctx));
 	pi.on("session_switch", async (_event, ctx) => initialize(ctx));
 	pi.on("session_shutdown", async (_event, ctx) => {
-		if (ctx.agent.kind === "main") await controller.shutdown();
+		if (ctx.agent.kind !== "main") return;
+		reminderClock.dispose();
+		await controller.shutdown();
 	});
 	pi.registerMessageRenderer<{ enabled: boolean }>("speak-notifications-state", (message, _options, theme) =>
 		new pi.pi.Text(theme.fg("muted", `Speech notifications ${message.details?.enabled ? "on" : "off"}.`), 0, 0));
 	pi.on("before_agent_start", (_event, ctx) => {
 		if (ctx.agent.kind !== "main") return;
+		workCalls = 0;
+		changedFiles = false;
+		completionChecked = false;
+		taskStarted = Date.now();
 		return { systemPrompt: [..._event.systemPrompt, GUIDANCE] };
+	});
+	pi.on("context", (event, ctx) => {
+		if (ctx.agent.kind !== "main") return;
+		const enabled = controller.status().enabled;
+		const elapsed = reminderClock.takeReminder();
+		const content = `Current speech notifications state: ${enabled ? "enabled" : "disabled"}. This live state overrides all older state notices. ${enabled ? "Judge notification significance yourself; announce substantial outcomes and user-action blockers." : "Do not call speak_notification."}${elapsed === undefined ? "" : ` ${silenceReminder(elapsed)}`}`;
+		return { messages: [...event.messages, { role: "custom", customType: "speak-notifications-current",
+			content, display: false, attribution: "agent", timestamp: Date.now() }] };
+	});
+	pi.on("tool_result", (event, ctx) => {
+		if (ctx.agent.kind !== "main") return;
+		let toolName = event.toolName;
+		const details: unknown = event.details;
+		if (details && typeof details === "object" && "xdev" in details) {
+			const xdev = details.xdev;
+			if (xdev && typeof xdev === "object" && "tool" in xdev && typeof xdev.tool === "string") toolName = xdev.tool;
+		}
+		if (toolName === "speak_notification") return;
+		workCalls++;
+		if (!event.isError && (toolName === "edit" || toolName === "write")) changedFiles = true;
+	});
+	pi.on("session_stop", (event, ctx) => {
+		if (ctx.agent.kind !== "main" || !controller.status().enabled || event.stop_hook_active || completionChecked) return;
+		if (workCalls === 0 || (!changedFiles && workCalls < 3 && Date.now() - taskStarted < 60_000)) return;
+		completionChecked = true;
+		return { continue: true, additionalContext: COMPLETION_CHECK };
 	});
 	pi.registerCommand("speak", {
 		description: "Toggle speech notifications, showing status when enabled, or use on | off | status",
@@ -110,8 +157,10 @@ export default function speakNotifications(pi: ExtensionAPI) {
 			const command = args === "" ? (controller.status().enabled ? "off" : "on") : args;
 			if (command === "on") {
 				controller.enable();
+				reminderClock.enable();
 				notice(true);
 			} else if (command === "off") {
+				reminderClock.disable();
 				await controller.disable();
 				notice(false);
 			} else if (command !== "status") {
