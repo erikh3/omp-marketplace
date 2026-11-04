@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.4.0
+
+- Add session-local outcome and attention checkpoints with task and enablement invalidation, canonical tool and plan targets, bounded unresolved status, and idempotent resolved identifiers.
+- Require current outcome identifiers and exact proactive attention targets. Reject stale identifiers, inactive tools, revised arguments, unreadable plans, invalid text, and rejected queues without audio coverage.
+- Block `ask` and known installed Plannotator review or annotation actions once for a missing attention decision. Missing recovery decisions become text-only unresolved status without fabricated calls. Keep approval and native-review prompts available when no safe pre-wait turn exists.
+- Keep live enablement first for decision paths while lifecycle cleanup continues disabled. Preserve timer reminders until the instruction that selected one completes.
+- Keep live state and decision reminders compact and transient. Do not copy notification history or invoke a judge model.
+- Assess returned background results, combine related reminders, and require speech before material user-action questions.
+- Count foreground and background work toward the five-minute reminder. Pause during idle time without jobs, user waits, and speech; preserve the remaining interval.
+- Retain primary-agent judgment, optional timer reminders, and one combined notification per material outcome.
+- Replace text-only tool calls with explicit speak-or-silent actions and outcome, attention, or milestone purposes. Silent decisions require a reason and produce no audio.
+- Request a missing task decision once at completion and block a question once before resubmission without an attention decision. Timer expiry never forces audio.
+- Preserve a blocked question's first preflight dispatch through its recovery response. The first response may record a valid current attention decision before the next question attempt; only a later omission becomes unresolved.
+- Exclude OMP's top-level `i` intent metadata from tool-boundary identity, so the same question retains its coverage when its display intent changes.
+- Send outcome recovery through OMP's hidden next-turn delivery instead of a queued follow-up message.
+- Make the current outcome identifier available after the first enabled work result. This lets the primary agent announce a substantial one-read negative finding without forcing a decision for routine work. Candidate thresholds still control recovery.
+- Mark live state context as metadata and direct the agent to continue the current user task without acknowledging it.
+- Release a question after its one recovery response omits a decision instead of blocking it again.
+- Promote an optional outcome identifier to required coverage when existing candidate thresholds qualify the same task, without replacing its ID.
+- State that an optional outcome identifier is only valid for an outcome. Direct proactive attention decisions to an exact boundary until the plugin supplies an attention ID.
+- Make transient live state passive metadata that tells the agent to answer the user, not the state note.
+
 ## 0.3.1
 
 - Assess optional speech completion in the next existing model request before the final answer instead of starting a post-answer turn. Declining speech no longer triggers empty-response retries.

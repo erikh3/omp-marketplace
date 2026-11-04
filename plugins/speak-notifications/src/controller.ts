@@ -42,6 +42,17 @@ export const DISABLED_MESSAGE =
 
 const QUEUE_LIMIT = 3;
 
+/** Validates speak text without inspecting session queue capacity. */
+export function validateNotificationText(text: string): EnqueueResult {
+	if (/\p{Cc}/u.test(text)) return { accepted: false, message: "Notification text contains a Unicode Cc control character (e.g. newline, tab). Remove control characters before calling." };
+	const trimmed = text.trim();
+	if (trimmed.length === 0) return { accepted: false, message: "Notification text is empty after trimming." };
+	let codePoints = 0;
+	for (const _character of trimmed) if (++codePoints > 500) break;
+	if (codePoints > 500) return { accepted: false, message: "Notification text exceeds the 500 code-point limit after trimming." };
+	return { accepted: true, message: trimmed };
+}
+
 function errorMessage(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
 }
@@ -97,33 +108,9 @@ export class NotificationController {
 			return { accepted: false, message: DISABLED_MESSAGE };
 		}
 
-		// Check before trimming so boundary control characters cannot disappear.
-		if (/\p{Cc}/u.test(text)) {
-			return {
-				accepted: false,
-				message:
-					"Notification text contains a Unicode Cc control character (e.g. newline, tab). Remove control characters before calling.",
-			};
-		}
-
-		// Validate the text that will actually be spoken.
-		const trimmed = text.trim();
-
-		// 3. Empty after trim.
-		if (trimmed.length === 0) {
-			return { accepted: false, message: "Notification text is empty after trimming." };
-		}
-
-		let codePoints = 0;
-		for (const _character of trimmed) {
-			if (++codePoints > 500) break;
-		}
-		if (codePoints > 500) {
-			return {
-				accepted: false,
-				message: "Notification text exceeds the 500 code-point limit after trimming.",
-			};
-		}
+		const textValidation = validateNotificationText(text);
+		if (!textValidation.accepted) return textValidation;
+		const trimmed = textValidation.message;
 
 		// 5. Capacity: the waiting queue excludes active playback.
 		if (this.queue.length >= QUEUE_LIMIT) {

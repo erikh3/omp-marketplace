@@ -1,5 +1,7 @@
 # Speak Notifications plugin specification
 
+The next implementation session must follow [Speech notification checkpoints: specification and implementation plan](speech-notification-checkpoints-plan.md). It supersedes the decision bookkeeping, recovery, and enforcement sections below. Check live speech enablement first. Use OMP-level checkpoints without provider-specific forcing.
+
 ## Purpose
 
 Add a self-contained personal OMP plugin named `speak-notifications`. It gives agents deliberate, short text-to-speech notifications without enabling OMP's automatic assistant vocalization.
@@ -33,33 +35,29 @@ Register `speak_notification` once at extension startup in the primary session o
 
 ### Tool contract
 
-```text
-speak_notification({ text: string })
-```
+The accepted [checkpoint plan](speech-notification-checkpoints-plan.md) defines the current tool contract. `speak_notification` accepts `action`, `purpose`, optional `checkpointId`, optional `boundary`, `text`, and `reason`. Outcomes and existing attention boundaries require their matching checkpoint identifier. A proactive attention decision requires an exact tool or plan-review boundary. A milestone binds neither. The host validates the tool schema before the extension executes it.
 
-- Accept one plain-text notification.
-- For schema-valid calls, check enabled state first. While disabled, return the disabled result without text validation. While enabled, reject any Unicode `Cc` control character in the original text, including newlines and tabs. Then trim leading and trailing whitespace and reject empty text or text exceeding 500 Unicode code points. Queue the trimmed text.
-- Return immediately. It must not wait for speech synthesis or playback.
-- If notifications are enabled, enqueue the message in FIFO order and report its one-based position in the waiting queue and the waiting queue depth at enqueue time. Both exclude current playback; this is an enqueue acknowledgement, not confirmation that speech succeeded.
-- If the queue is full, reject the new message and report that it was not spoken. This should be exceptional: static agent guidance limits notifications to material events and one per task phase.
-- If notifications are disabled, do not start or queue speech. Return: `Speech notifications are disabled. Do not retry unless the user enables them with /speak on.`
-- The tool must never invoke an additional overlapping playback process.
+For schema-valid calls, check enabled state first. While disabled, return the disabled result without text validation. While enabled, `speak` rejects Unicode `Cc` control characters in original text, then blank or over-500-code-point trimmed text. `silent` requires a short reason and never queues audio. Queue acceptance resolves speech coverage. Queue rejection leaves a checkpoint pending. A valid repeated resolved identifier is idempotent.
+
+Use the current checkpoint identifier only to decide whether a meaningful outcome needs speech. It does not require audio by itself. Canonical target matching covers only unchanged effective tool arguments or normalized plan path and content. Stale identifiers, changed boundaries, unreadable plans, inactive tools, and invalid text must not queue audio or satisfy coverage.
+
+The tool returns immediately. It must not wait for speech synthesis or playback. If enabled, it queues the trimmed text in FIFO order and reports waiting position and depth. Both exclude current playback. This confirms queue acceptance, not successful playback. If disabled, it returns: `Speech notifications are disabled. Do not retry unless the user enables them with /speak on.`
 
 The agent must never call raw `omp say` or use Bash for speech. The extension owns all process management.
 
 ### Static agent guidance
 
-The stable policy lives in `plugins/speak-notifications/src/guidance.ts`. Inject it into the primary session before each agent run without changing the static prefix when toggled.
+The stable policy lives in `plugins/speak-notifications/src/guidance.ts` and is the essential registered tool description. The primary agent receives the immutable tool definition and policy on each model request. Enablement, checkpoint IDs, and timer reminders remain short transient context; toggling does not change the schema or policy.
 
-Require one short outcome for each substantial task, including negative or inconclusive outcomes. Implementation, debugging, multi-source research, reviews, and long operations normally qualify. Quick answers and routine commands normally stay silent. The agent judges significance and wording. Blockers and decisions deserve speech when they need user attention or materially change the plan, not for immediately recovered errors. Combine related outcomes and child results. A milestone is not the final outcome. Explicit user requests for silence override optional reminders.
+Require one short outcome for each substantial task, including negative or inconclusive outcomes. Implementation, debugging, multi-source research, reviews, and long operations normally qualify. Quick answers and routine commands normally stay silent. The agent judges significance and wording without a separate classifier or judge model. Blockers and decisions deserve speech when they need user attention or materially change the plan, not for immediately recovered errors. Speech must execute before a blocking question, never after it in the same tool batch. Combine related outcomes and child results. A milestone is not the final outcome. Queued speech is pending coverage and must not be duplicated. Explicit user requests for silence override optional reminders.
 
-After work qualifies as a candidate substantial task, include at most one optional completion assessment in the next existing provider request, before its final answer. Candidates have a successful file edit/write, three work calls, or at least one work call over a minute. Do not count speech calls as work. Preserve task significance across earlier notifications so milestones and failed playback cannot suppress the assessment. Skip disabled sessions and subagents without consuming the assessment. Let the agent skip speech if the outcome was already announced; never force speech or repeat the check for the same task. Do not create a post-answer continuation. Ordinary empty-response recovery remains unchanged.
+After work qualifies as a candidate substantial task, request one explicit outcome decision in the next existing provider request. Candidates have a successful file edit/write, three work calls, or at least one work call over a minute. Do not count notification decisions as work. Returned background results receive a targeted assessment. Coalesce simultaneous assessments into one short instruction without copied notification history. Preserve task significance across progress decisions and internal continuations. Skip disabled sessions and subagents. If candidate work settles without an outcome decision, request it in at most one bounded continuation. A question without an attention decision is blocked once before resubmission. The model may select silent for trivial, repeated, or explicitly silenced information. Never force audio or alter ordinary empty-response recovery.
 
 ### Silence reminder
 
-Start a five-minute timer on enable. Pause it while speech is queued, synthesizing, or playing. Reset its silence baseline after successful playback completion, not enqueue acceptance. On failure, retain elapsed silence but delay the next reminder for five minutes.
+Use a five-minute active-work countdown while notifications are enabled. Model inference, thinking, foreground work, and running background jobs count. Idle time without running jobs pauses the countdown. User-answer, tool-approval, and plan-review waits pause it even if background work continues. Pause while speech is queued, synthesizing, or playing. All pauses preserve the remaining interval. Successful playback resets elapsed active silence and the countdown. Failure preserves elapsed active silence but delays the next assessment by five active minutes.
 
-At expiry, retain one pending hidden reminder for the next model request without interrupting tools, waits, or in-flight inference. State elapsed silence and ask whether a meaningful milestone, outcome, or user-action blocker deserves speech. The agent may continue silently. Rearm after consuming the reminder, at most once per five minutes. Idle sessions keep one pending reminder without starting a model turn. Turning off, resume, and shutdown clear timer and pending state. Off freezes the reset clock until enabled again. Timers must not keep the process alive.
+At expiry, retain one pending reminder for the next model request without interrupting tools, waits, or in-flight inference. State elapsed active silence and ask whether useful new information deserves speech. The agent may continue silently. Rearm after consuming the reminder, at most once per five active minutes. Idle sessions keep pending reminders without starting a model turn. Turning off, resume, and shutdown clear timer and pending state. Off freezes the reset clock until enabled again. Timers must not keep the process alive.
 
 Toggling notifications does not change the tool schema or static policy. Current state and reminders are per-request context, not changes to the cached static prompt prefix.
 
@@ -128,5 +126,5 @@ A local TTS readiness check is optional. Do not require extensive readiness or d
 13. Playback uses local TTS. It selects a local model from the parent session's speech-role chain using OMP's local selection rules and explicitly passes its model ID and the parent session's resolved `tts.localVoice` and `tts.localSpeed` values to `omp say`. It does not read or recreate `tts.localModel`.
 14. While enabled, blank, over-limit, and control-character-containing text is rejected under the tool contract's validation order. Playback failures show an immediate visible error and appear in `/speak status`; successful playback clears the retained error.
 15. With notifications enabled, an autonomous OMP session announces a blocker or decision request and the outcome of a long-running operation without any user prompt naming the speech tool or requesting speech.
-16. A five-minute silence expiry supplies one hidden reminder at the next model request, coalesces while idle without model wakeups, and resets after successful playback completion. Disable, resume, and shutdown cancel pending reminders and freeze the reset timer.
-17. Candidate substantial work receives at most one optional completion assessment before its final answer, including after progress notifications. Quick work and disabled sessions receive no assessment. The model can skip speech if an outcome was already announced. Completion never creates a redundant continuation or an empty-response retry loop.
+16. Five minutes of active work, including background jobs, supplies one reminder at the next model request without waking the agent. Idle time without jobs, user waits, and speech pause the remaining interval. Success resets it. Disable, resume, and shutdown cancel pending reminders and freeze the reset timer.
+17. Candidate substantial work receives one outcome assessment, including after progress decisions. Missing decisions receive at most one boundary recovery. Questions receive at most one recovery for the same submitted question. Explicit silent decisions produce no audio. Disabled sessions receive no decision enforcement.

@@ -46,13 +46,95 @@ function makeClock() {
 	return { clock: new ReminderClock(100, scheduler), scheduler };
 }
 
-describe("silence reminder clock", () => {
-	test("expires at the boundary, consumes once, and rearms without resetting elapsed silence", () => {
+describe("active-work reminder clock", () => {
+	test("counts only active work across idle time", () => {
 		const { clock, scheduler } = makeClock();
 		clock.enable();
+		clock.setWorking(true);
+		scheduler.advanceBy(40);
+		clock.setWorking(false);
+		scheduler.advanceBy(3_600_000);
+		clock.setWorking(true);
+		scheduler.advanceBy(59);
+		expect(clock.takeReminder()).toBeUndefined();
+		scheduler.advanceBy(1);
+		expect(clock.takeReminder()).toBe(100);
+	});
+
+	test("does not arm while enabled idle, but accepts background work", () => {
+		const { clock, scheduler } = makeClock();
+		clock.enable();
+		scheduler.advanceBy(1_000);
+		expect(clock.takeReminder()).toBeUndefined();
+		clock.setWorking(true);
+		scheduler.advanceBy(100);
+		expect(clock.takeReminder()).toBe(100);
+	});
+
+	test("user wait preserves remaining time rather than resetting the interval", () => {
+		const { clock, scheduler } = makeClock();
+		clock.enable();
+		clock.setWorking(true);
+		scheduler.advanceBy(40);
+		clock.setWaiting(true);
+		scheduler.advanceBy(3_600_000);
+		clock.setWaiting(false);
+		scheduler.advanceBy(59);
+		expect(clock.takeReminder()).toBeUndefined();
+		scheduler.advanceBy(1);
+		expect(clock.takeReminder()).toBe(100);
+	});
+
+	test("overlapping wait and speech pause the countdown until active work resumes", () => {
+		const { clock, scheduler } = makeClock();
+		clock.enable();
+		clock.setWorking(true);
+		scheduler.advanceBy(40);
+		clock.setWaiting(true);
+		scheduler.advanceBy(500);
+		clock.playbackStarted();
+		scheduler.advanceBy(500);
+		clock.setWaiting(false);
+		scheduler.advanceBy(500);
+		expect(clock.takeReminder()).toBeUndefined();
+		clock.playbackFinished(true);
 		scheduler.advanceBy(99);
 		expect(clock.takeReminder()).toBeUndefined();
 		scheduler.advanceBy(1);
+		expect(clock.takeReminder()).toBe(100);
+	});
+
+	test("success resets while idle and failure preserves elapsed silence but defers assessment", () => {
+		const { clock, scheduler } = makeClock();
+		clock.enable();
+		clock.setWorking(true);
+		scheduler.advanceBy(40);
+		clock.playbackStarted();
+		scheduler.advanceBy(500);
+		clock.playbackFinished(true);
+		clock.setWorking(false);
+		scheduler.advanceBy(500);
+		clock.setWorking(true);
+		scheduler.advanceBy(100);
+		expect(clock.takeReminder()).toBe(100);
+		clock.playbackStarted();
+		scheduler.advanceBy(500);
+		clock.playbackFinished(false);
+		scheduler.advanceBy(99);
+		expect(clock.takeReminder()).toBeUndefined();
+		scheduler.advanceBy(1);
+		expect(clock.takeReminder()).toBe(200);
+	});
+
+	test("coalesces a pending expiry until active work consumes it and rearms once", () => {
+		const { clock, scheduler } = makeClock();
+		clock.enable();
+		clock.setWorking(true);
+		scheduler.advanceBy(100);
+		clock.setWaiting(true);
+		scheduler.advanceBy(1_000);
+		expect(clock.takeReminder()).toBeUndefined();
+		clock.setWaiting(false);
 		expect(clock.takeReminder()).toBe(100);
 		expect(clock.takeReminder()).toBeUndefined();
 		scheduler.advanceBy(99);
@@ -61,73 +143,48 @@ describe("silence reminder clock", () => {
 		expect(clock.takeReminder()).toBe(200);
 	});
 
-	test("successful finish resets silence after playback, not at enqueue or start", () => {
+	test("pending reminders count continued work but exclude subsequent idle time", () => {
 		const { clock, scheduler } = makeClock();
 		clock.enable();
-		scheduler.advanceBy(40);
-		clock.playbackStarted();
-		scheduler.advanceBy(800);
-		expect(clock.takeReminder()).toBeUndefined();
-		clock.playbackFinished(true);
-		scheduler.advanceBy(99);
-		expect(clock.takeReminder()).toBeUndefined();
-		scheduler.advanceBy(1);
-		expect(clock.takeReminder()).toBe(100);
-	});
-
-	test("failed finish preserves silence but delays another reminder", () => {
-		const { clock, scheduler } = makeClock();
-		clock.enable();
-		scheduler.advanceBy(40);
-		clock.playbackStarted();
-		scheduler.advanceBy(80);
-		clock.playbackFinished(false);
-		scheduler.advanceBy(99);
-		expect(clock.takeReminder()).toBeUndefined();
-		scheduler.advanceBy(1);
-		expect(clock.takeReminder()).toBe(220);
-	});
-
-	test("idle expiry coalesces until consumed", () => {
-		const { clock, scheduler } = makeClock();
-		clock.enable();
-		scheduler.advanceBy(500);
-		expect(clock.takeReminder()).toBe(500);
-		expect(clock.takeReminder()).toBeUndefined();
-		scheduler.advanceBy(100);
+		clock.setWorking(true);
+		scheduler.advanceBy(400);
+		expect(clock.takeReminder()).toBe(400);
+		scheduler.advanceBy(150);
+		clock.setWorking(false);
+		scheduler.advanceBy(1_000);
+		clock.setWorking(true);
+		scheduler.advanceBy(50);
 		expect(clock.takeReminder()).toBe(600);
 	});
 
-	test("repeated enable does not postpone cooldown", () => {
+	test("handles duplicate playback starts and resets safely across disable and stale timers", () => {
 		const { clock, scheduler } = makeClock();
 		clock.enable();
-		scheduler.advanceBy(50);
-		clock.enable();
-		scheduler.advanceBy(50);
-		expect(clock.takeReminder()).toBe(100);
-	});
-
-	test("off resets, freezes, and rejects stale timers and playback callbacks", () => {
-		const { clock, scheduler } = makeClock();
-		clock.enable();
-		scheduler.advanceBy(50);
+		clock.setWorking(true);
+		scheduler.advanceBy(40);
+		clock.playbackStarted();
+		clock.playbackStarted();
 		clock.disable();
 		scheduler.fireCancelledTimers();
 		clock.playbackFinished(true);
+		clock.setWorking(false);
+		clock.enable();
 		scheduler.advanceBy(500);
 		expect(clock.takeReminder()).toBeUndefined();
-		clock.enable();
+		clock.setWorking(true);
 		scheduler.advanceBy(99);
 		expect(clock.takeReminder()).toBeUndefined();
 		scheduler.advanceBy(1);
 		expect(clock.takeReminder()).toBe(100);
 	});
 
-	test("dispose cancels a pending expiry", () => {
+	test("dispose cancels pending expiry callbacks", () => {
 		const { clock, scheduler } = makeClock();
 		clock.enable();
-		scheduler.advanceBy(100);
+		clock.setWorking(true);
+		scheduler.advanceBy(50);
 		clock.dispose();
+		scheduler.fireCancelledTimers();
 		scheduler.advanceBy(500);
 		expect(clock.takeReminder()).toBeUndefined();
 	});
