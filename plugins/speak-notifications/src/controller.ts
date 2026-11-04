@@ -76,6 +76,7 @@ export class NotificationController {
 	constructor(
 		startPlayback: (text: string) => Playback,
 		reportError: (message: string) => void,
+		private readonly playbackFinished: (success: boolean) => void = () => {},
 	) {
 		this.startPlaybackFn = startPlayback;
 		this.reportErrorFn = reportError;
@@ -238,6 +239,7 @@ export class NotificationController {
 				// A synchronous spawn failure is a playback failure.
 				this.lastPlaybackError = errorMessage(error);
 				this.reportErrorFn(`speak_notification: playback failed: ${this.lastPlaybackError}`);
+				this.playbackFinished(false);
 				continue;
 			}
 
@@ -248,6 +250,7 @@ export class NotificationController {
 			// false here before they set it to true.
 			this.currentPlaybackStopped = false;
 
+			let succeeded = false;
 			try {
 				await playback.exited;
 				// Clear the retained error only on a genuine uninterrupted success.
@@ -255,6 +258,7 @@ export class NotificationController {
 				// against clearing lastPlaybackError in that case.
 				if (!this.currentPlaybackStopped) {
 					this.lastPlaybackError = null;
+					succeeded = true;
 				}
 			} catch (error) {
 				// Do not record an error for an explicitly stopped playback.
@@ -266,6 +270,7 @@ export class NotificationController {
 
 			this.activePlayback = false;
 			this.currentPlayback = undefined;
+			this.playbackFinished(succeeded);
 		}
 
 		this.workerRunning = false;

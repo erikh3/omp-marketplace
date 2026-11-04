@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.0
+
+- Clarify substantial outcomes, user-action blockers, and cases that should stay silent.
+- Supply live enabled state before each model request and request at most one optional completion check for candidate substantial work.
+- Add a five-minute silence reminder. Pause during speech, reset after successful playback, coalesce while idle without waking the model, and reset/freeze when disabled.
+
 ## 0.2.1
 
 - Show only the off notice when bare `/speak` disables notifications. Keep full status when it enables them.

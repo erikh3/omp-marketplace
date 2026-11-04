@@ -13,7 +13,15 @@ Deliberate local speech notifications for the primary OMP agent. Requires OMP 18
 
 Startup state is communicated to the agent without a visible chip. State changes show `Speech notifications on.` or `Speech notifications off.`; a bare toggle that enables notifications also shows full status below it. Full state instructions stay hidden in model context. Subagents do not receive the tool or its guidance.
 
-When enabled, the primary agent must announce blockers, decision requests, completed or failed long-running operations, and substantial task outcomes without another speech request. It chooses a short message itself. Brief meaningful phase updates are allowed; routine tool progress, greetings, logs, code, and repeated status remain text-only. Related outcomes are combined and events are not announced twice.
+When enabled, the primary agent must announce substantial task outcomes and blockers or decisions needing user attention. Implementation, debugging, multi-source research, reviews, and long operations normally qualify, including negative or inconclusive outcomes. Quick answers and routine commands normally stay silent. The agent judges significance and wording; related outcomes and child results are combined. A milestone does not replace the final outcome. Routine progress, recoverable errors, greetings, logs, code, and repeated status stay text-only.
+
+The plugin supplies current enabled state before each model request so restored notices cannot override it. Before a candidate substantial task finishes, it can request one optional completion check. Candidates have a successful file edit/write, at least three work calls, or at least one work call in a task lasting a minute. These select when to ask the agent to judge, not when to force speech. Earlier notifications do not suppress this assessment: the agent can decline silently if the final outcome was already announced. A declined check never loops.
+
+## Silence reminder
+
+Enabling starts a five-minute cooldown. Queued speech pauses it through synthesis and playback. A successful playback completion resets it to five minutes; enqueue acceptance alone does not count as successful speech. Failures preserve the last-success time but defer another reminder for five minutes.
+
+At expiry, one hidden reminder becomes pending for the next model request, stating how long speech has been silent. A running tool finishes uninterrupted. The agent may announce a meaningful milestone or continue silently. The reminder does not force speech or block urgent notifications. Reminders repeat at most once per five minutes while working. An idle session retains one pending reminder without waking the model. Turning speech off resets and freezes the timer and discards pending reminders. Resume and shutdown also clear it. Explicit user requests for silence take precedence.
 
 ## Playback and limits
 
