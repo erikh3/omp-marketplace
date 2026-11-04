@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.1
+
+- Assess optional speech completion in the next existing model request before the final answer instead of starting a post-answer turn. Declining speech no longer triggers empty-response retries.
+
 ## 0.3.0
 
 - Clarify substantial outcomes, user-action blockers, and cases that should stay silent.

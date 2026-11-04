@@ -12,7 +12,7 @@ Before finishing, check whether the task has an unannounced substantial outcome.
 
 Use one or two plain sentences, normally under 25 words. Lead with the outcome or required action. Do not repeat an event already announced. Keep routine tool progress in text. A reminder or completion check may be declined silently when nothing merits speech.`;
 
-export const COMPLETION_CHECK = "Speech notifications are enabled. Before settling, assess whether this task has an unannounced substantial outcome or unresolved user-action blocker. If so, call speak_notification with one short outcome. A prior milestone is not the final outcome. If the task is trivial, already announced, or the user requested silence, finish silently. This check will not repeat for this task.";
+export const COMPLETION_CHECK = "Speech notifications are enabled. Before your final answer, assess whether this task has an unannounced substantial outcome or unresolved user-action blocker. If so, call speak_notification with one short outcome. A prior milestone is not the final outcome. If the task is trivial, already announced, or the user requested silence, continue the task without speech. This check will not repeat for this task.";
 
 export function silenceReminder(elapsedMs: number) {
 	return `Speech notifications are enabled. No speech notification has finished successfully for ${Math.floor(elapsedMs / 1000)} seconds. Assess whether there is a meaningful outcome, milestone, or user-action blocker to announce. If not, continue silently. Do not invent progress or speak solely because time passed.`;

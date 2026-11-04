@@ -121,7 +121,10 @@ export default function speakNotifications(pi: ExtensionAPI) {
 		if (ctx.agent.kind !== "main") return;
 		const enabled = controller.status().enabled;
 		const elapsed = reminderClock.takeReminder();
-		const content = `Current speech notifications state: ${enabled ? "enabled" : "disabled"}. This live state overrides all older state notices. ${enabled ? "Judge notification significance yourself; announce substantial outcomes and user-action blockers." : "Do not call speak_notification."}${elapsed === undefined ? "" : ` ${silenceReminder(elapsed)}`}`;
+		const completionCheck = enabled && !completionChecked && workCalls > 0 &&
+			(changedFiles || workCalls >= 3 || Date.now() - taskStarted >= 60_000);
+		if (completionCheck) completionChecked = true;
+		const content = `Current speech notifications state: ${enabled ? "enabled" : "disabled"}. This live state overrides all older state notices. ${enabled ? "Judge notification significance yourself; announce substantial outcomes and user-action blockers." : "Do not call speak_notification."}${elapsed === undefined ? "" : ` ${silenceReminder(elapsed)}`}${completionCheck ? ` ${COMPLETION_CHECK}` : ""}`;
 		return { messages: [...event.messages, { role: "custom", customType: "speak-notifications-current",
 			content, display: false, attribution: "agent", timestamp: Date.now() }] };
 	});
@@ -136,12 +139,6 @@ export default function speakNotifications(pi: ExtensionAPI) {
 		if (toolName === "speak_notification") return;
 		workCalls++;
 		if (!event.isError && (toolName === "edit" || toolName === "write")) changedFiles = true;
-	});
-	pi.on("session_stop", (event, ctx) => {
-		if (ctx.agent.kind !== "main" || !controller.status().enabled || event.stop_hook_active || completionChecked) return;
-		if (workCalls === 0 || (!changedFiles && workCalls < 3 && Date.now() - taskStarted < 60_000)) return;
-		completionChecked = true;
-		return { continue: true, additionalContext: COMPLETION_CHECK };
 	});
 	pi.registerCommand("speak", {
 		description: "Toggle speech notifications, showing status when enabled, or use on | off | status",
