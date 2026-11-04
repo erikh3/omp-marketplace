@@ -1,10 +1,10 @@
 import type { ExtensionAPI } from "@oh-my-pi/pi-coding-agent";
 import type { Component } from "@oh-my-pi/pi-tui";
 import { TERMINAL, truncateToWidth, visibleWidth } from "@oh-my-pi/pi-tui";
-import { $which, VERSION } from "@oh-my-pi/pi-utils";
+import { VERSION } from "@oh-my-pi/pi-utils";
 import { existsSync } from "node:fs";
 import { readdir, stat } from "node:fs/promises";
-import { basename, dirname, isAbsolute, join, parse, relative, resolve, sep } from "node:path";
+import { basename, dirname, join, parse, relative, resolve } from "node:path";
 
 const RESET = "\x1b[0m";
 const DIM = "\x1b[38;2;128;128;128m";
@@ -70,35 +70,6 @@ interface Vault {
   path: string;
 }
 
-function containsPath(parent: string, child: string): boolean {
-  const pathFromParent = relative(parent, child);
-  return pathFromParent === "" || (!pathFromParent.startsWith(`..${sep}`) && pathFromParent !== ".." && !isAbsolute(pathFromParent));
-}
-
-async function findVaultWithCli(startDirectory: string): Promise<Vault | undefined> {
-  const executable = $which("obsidian");
-  if (!executable) return undefined;
-
-  const process = Bun.spawn([executable, "vault", "info=path"], {
-    cwd: startDirectory,
-    stdout: "pipe",
-    stderr: "ignore",
-  });
-  const timeout = setTimeout(() => process.kill(), 1000);
-  try {
-    const [output, exitCode] = await Promise.all([new Response(process.stdout).text(), process.exited]);
-    const vaultPath = resolve(output.trim());
-    if (exitCode !== 0 || !existsSync(join(vaultPath, ".obsidian")) || !containsPath(vaultPath, startDirectory)) {
-      return undefined;
-    }
-    return { location: relative(vaultPath, startDirectory), name: basename(vaultPath), path: vaultPath };
-  } catch {
-    return undefined;
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
 function findVaultFromDirectory(startDirectory: string): Vault | undefined {
   let directory = resolve(startDirectory);
   const root = parse(directory).root;
@@ -110,10 +81,6 @@ function findVaultFromDirectory(startDirectory: string): Vault | undefined {
     if (directory === root) return undefined;
     directory = dirname(directory);
   }
-}
-
-async function findVault(startDirectory: string): Promise<Vault | undefined> {
-  return await findVaultWithCli(startDirectory) ?? findVaultFromDirectory(startDirectory);
 }
 
 function formatTimeAgo(modifiedAt: number, now = Date.now()): string {
@@ -423,7 +390,7 @@ class ObsidianWelcome implements Component {
 export default function obsidianWelcome(pi: ExtensionAPI): void {
   pi.on("session_start", async (_event, ctx) => {
     if (!ctx.hasUI || ctx.mode !== "tui") return;
-    const obsidianVault = await findVault(ctx.cwd);
+    const obsidianVault = findVaultFromDirectory(ctx.cwd);
     if (!obsidianVault) return;
 
     const model = ctx.model?.name ?? ctx.model?.id ?? "No model";
