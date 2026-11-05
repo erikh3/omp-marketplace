@@ -55,12 +55,14 @@ interface ControlledController {
 	controller: NotificationController;
 	playbacks: ControlledPlayback[];
 	errors: string[];
+	completed: boolean[];
 }
 
-/** Factory used by most tests. Collects playbacks and reported errors. */
+/** Factory used by most tests. Collects playback starts, errors, and outcomes. */
 function makeController(): ControlledController {
 	const playbacks: ControlledPlayback[] = [];
 	const errors: string[] = [];
+	const completed: boolean[] = [];
 	const controller = new NotificationController(
 		(text) => {
 			const cp = makeControlledPlayback(text);
@@ -70,8 +72,11 @@ function makeController(): ControlledController {
 		(msg) => {
 			errors.push(msg);
 		},
+		(success) => {
+			completed.push(success);
+		},
 	);
-	return { controller, playbacks, errors };
+	return { controller, playbacks, errors, completed };
 }
 
 // ---------------------------------------------------------------------------
@@ -95,17 +100,17 @@ describe("disabled validation precedence", () => {
 	test("returns exact disabled message for any schema-valid call without validating text", () => {
 		const { controller } = makeController();
 		// Disabled takes precedence over control-character validation.
-		expect(controller.enqueue("\x01 hello")).toEqual({
+		expect(controller.enqueue("\x01 hello", "outcome", 0)).toEqual({
 			accepted: false,
 			message: DISABLED_MESSAGE,
 		});
 		// Disabled takes precedence over blank-text validation.
-		expect(controller.enqueue("   ")).toEqual({
+		expect(controller.enqueue("   ", "outcome", 0)).toEqual({
 			accepted: false,
 			message: DISABLED_MESSAGE,
 		});
 		// Disabled takes precedence over the length limit.
-		expect(controller.enqueue("a".repeat(501))).toEqual({
+		expect(controller.enqueue("a".repeat(501), "outcome", 0)).toEqual({
 			accepted: false,
 			message: DISABLED_MESSAGE,
 		});
@@ -114,7 +119,7 @@ describe("disabled validation precedence", () => {
 	test("validation runs only once enabled", () => {
 		const { controller } = makeController();
 		controller.enable();
-		const result = controller.enqueue("\x01 hello");
+		const result = controller.enqueue("\x01 hello", "outcome", 0);
 		expect(result.accepted).toBe(false);
 		expect(result.message).not.toBe(DISABLED_MESSAGE);
 	});
@@ -129,7 +134,7 @@ describe("unicode Cc and code-point validation", () => {
 		const { controller } = makeController();
 		controller.enable();
 		// "\t" alone would be empty after trim, but the Cc check comes first.
-		const result = controller.enqueue("\t");
+		const result = controller.enqueue("\t", "outcome", 0);
 		expect(result.accepted).toBe(false);
 		expect(result.message).not.toBe(DISABLED_MESSAGE);
 		expect(result.message).not.toContain("empty"); // Cc error, not empty error
@@ -138,7 +143,7 @@ describe("unicode Cc and code-point validation", () => {
 	test("rejects text with leading tab even when remainder is valid", () => {
 		const { controller } = makeController();
 		controller.enable();
-		const result = controller.enqueue("\thello");
+		const result = controller.enqueue("\thello", "outcome", 0);
 		expect(result.accepted).toBe(false);
 		expect(result.message).not.toBe(DISABLED_MESSAGE);
 		expect(result.message).not.toContain("empty");
@@ -147,19 +152,19 @@ describe("unicode Cc and code-point validation", () => {
 	test("rejects embedded newline (U+000A, Cc)", () => {
 		const { controller } = makeController();
 		controller.enable();
-		expect(controller.enqueue("hello\nworld").accepted).toBe(false);
+		expect(controller.enqueue("hello\nworld", "outcome", 0).accepted).toBe(false);
 	});
 
 	test("rejects NUL (U+0000, Cc)", () => {
 		const { controller } = makeController();
 		controller.enable();
-		expect(controller.enqueue("hel\x00lo").accepted).toBe(false);
+		expect(controller.enqueue("hel\x00lo", "outcome", 0).accepted).toBe(false);
 	});
 
 	test("accepts exactly 500 code points and returns correct position/depth", () => {
 		const { controller } = makeController();
 		controller.enable();
-		const result = controller.enqueue("a".repeat(500));
+		const result = controller.enqueue("a".repeat(500), "outcome", 0);
 		expect(result.accepted).toBe(true);
 		expect(result.position).toBe(1);
 		expect(result.depth).toBe(1);
@@ -168,7 +173,7 @@ describe("unicode Cc and code-point validation", () => {
 	test("rejects 501 code points", () => {
 		const { controller } = makeController();
 		controller.enable();
-		const result = controller.enqueue("a".repeat(501));
+		const result = controller.enqueue("a".repeat(501), "outcome", 0);
 		expect(result.accepted).toBe(false);
 		expect(result.message).not.toBe(DISABLED_MESSAGE);
 	});
@@ -178,26 +183,26 @@ describe("unicode Cc and code-point validation", () => {
 		controller.enable();
 		// U+1F600 is 1 code point but 2 UTF-16 units.
 		const exactly500 = "😀".repeat(499) + "x"; // 500 code points
-		expect(controller.enqueue(exactly500).accepted).toBe(true);
+		expect(controller.enqueue(exactly500, "outcome", 0).accepted).toBe(true);
 	});
 
 	test("rejects 501 code points including emoji", () => {
 		const { controller } = makeController();
 		controller.enable();
 		const over500 = "😀".repeat(501); // 501 code points
-		expect(controller.enqueue(over500).accepted).toBe(false);
+		expect(controller.enqueue(over500, "outcome", 0).accepted).toBe(false);
 	});
 
 	test("trims and accepts; code-point limit applies to trimmed text", () => {
 		const { controller } = makeController();
 		controller.enable();
-		expect(controller.enqueue("  hello world  ").accepted).toBe(true);
+		expect(controller.enqueue("  hello world  ", "outcome", 0).accepted).toBe(true);
 	});
 
 	test("rejects text empty after trimming", () => {
 		const { controller } = makeController();
 		controller.enable();
-		const result = controller.enqueue("   ");
+		const result = controller.enqueue("   ", "outcome", 0);
 		expect(result.accepted).toBe(false);
 		expect(result.message).not.toBe(DISABLED_MESSAGE);
 		expect(result.message).toContain("empty");
@@ -223,14 +228,14 @@ describe("commands: enable, disable, reset", () => {
 		const { controller } = makeController();
 		controller.enable();
 		expect(controller.status().enabled).toBe(true);
-		expect(controller.enqueue("hello").accepted).toBe(true);
+		expect(controller.enqueue("hello", "outcome", 0).accepted).toBe(true);
 	});
 
 	test("disable sets enabled=false and clears waiting queue", async () => {
 		const { controller } = makeController();
 		controller.enable();
-		controller.enqueue("one");
-		controller.enqueue("two");
+		controller.enqueue("one", "outcome", 0);
+		controller.enqueue("two", "outcome", 0);
 		expect(controller.status().queueDepth).toBe(2);
 
 		await controller.disable();
@@ -242,7 +247,7 @@ describe("commands: enable, disable, reset", () => {
 	test("disable stops active playback and returns after exit", async () => {
 		const { controller, playbacks } = makeController();
 		controller.enable();
-		controller.enqueue("hello");
+		controller.enqueue("hello", "outcome", 0);
 		await tick(); // worker starts
 
 		expect(playbacks).toHaveLength(1);
@@ -257,8 +262,8 @@ describe("commands: enable, disable, reset", () => {
 	test("reset reinitializes all state after stopping playback", async () => {
 		const { controller, playbacks } = makeController();
 		controller.enable();
-		controller.enqueue("alpha");
-		controller.enqueue("beta");
+		controller.enqueue("alpha", "outcome", 0);
+		controller.enqueue("beta", "outcome", 0);
 		await tick(); // worker starts playing "alpha"
 
 		// Fail alpha to set lastPlaybackError, then let beta start.
@@ -280,7 +285,7 @@ describe("commands: enable, disable, reset", () => {
 	test("reset with no active playback initializes state synchronously", async () => {
 		const { controller } = makeController();
 		controller.enable();
-		controller.enqueue("one");
+		controller.enqueue("one", "outcome", 0);
 		// Worker microtask has not run; no active playback.
 		await controller.reset();
 		const s = controller.status();
@@ -301,9 +306,9 @@ describe("FIFO ordering, no overlap, immediate enqueue", () => {
 		controller.enable();
 
 		// Results are available without awaiting playback.
-		const r1 = controller.enqueue("alpha");
-		const r2 = controller.enqueue("beta");
-		const r3 = controller.enqueue("gamma");
+		const r1 = controller.enqueue("alpha", "outcome", 0);
+		const r2 = controller.enqueue("beta", "outcome", 0);
+		const r3 = controller.enqueue("gamma", "outcome", 0);
 
 		expect(r1).toMatchObject({ accepted: true, position: 1, depth: 1 });
 		expect(r2).toMatchObject({ accepted: true, position: 2, depth: 2 });
@@ -313,7 +318,7 @@ describe("FIFO ordering, no overlap, immediate enqueue", () => {
 	test("worker has not started before the first tick", () => {
 		const { controller, playbacks } = makeController();
 		controller.enable();
-		controller.enqueue("first");
+		controller.enqueue("first", "outcome", 0);
 		// No playback exists before the worker microtask runs.
 		expect(playbacks).toHaveLength(0);
 	});
@@ -322,9 +327,9 @@ describe("FIFO ordering, no overlap, immediate enqueue", () => {
 		const { controller, playbacks } = makeController();
 		controller.enable();
 
-		controller.enqueue("one");
-		controller.enqueue("two");
-		controller.enqueue("three");
+		controller.enqueue("one", "outcome", 0);
+		controller.enqueue("two", "outcome", 0);
+		controller.enqueue("three", "outcome", 0);
 
 		await tick(); // worker starts first item
 
@@ -363,15 +368,15 @@ describe("capacity 3 excluding active playback", () => {
 		const { controller, playbacks } = makeController();
 		controller.enable();
 
-		controller.enqueue("one");
+		controller.enqueue("one", "outcome", 0);
 		await tick(); // worker starts "one"
 
 		expect(controller.status().activePlayback).toBe(true);
 		expect(controller.status().queueDepth).toBe(0);
 
-		const r2 = controller.enqueue("two");
-		const r3 = controller.enqueue("three");
-		const r4 = controller.enqueue("four");
+		const r2 = controller.enqueue("two", "outcome", 0);
+		const r3 = controller.enqueue("three", "outcome", 0);
+		const r4 = controller.enqueue("four", "outcome", 0);
 
 		expect(r2).toMatchObject({ accepted: true, position: 1, depth: 1 });
 		expect(r3).toMatchObject({ accepted: true, position: 2, depth: 2 });
@@ -379,7 +384,7 @@ describe("capacity 3 excluding active playback", () => {
 		expect(controller.status().queueDepth).toBe(3);
 
 		// Fifth item: queue full.
-		const r5 = controller.enqueue("five");
+		const r5 = controller.enqueue("five", "outcome", 0);
 		expect(r5.accepted).toBe(false);
 		expect(r5.message).toContain("full");
 		expect(r5.position).toBeUndefined();
@@ -403,15 +408,157 @@ describe("capacity 3 excluding active playback", () => {
 		// With nothing playing, 3 items fill the waiting queue.
 		const { controller } = makeController();
 		controller.enable();
-		expect(controller.enqueue("a").accepted).toBe(true);
-		expect(controller.enqueue("b").accepted).toBe(true);
-		expect(controller.enqueue("c").accepted).toBe(true);
-		expect(controller.enqueue("d").accepted).toBe(false);
+		expect(controller.enqueue("a", "outcome", 0).accepted).toBe(true);
+		expect(controller.enqueue("b", "outcome", 0).accepted).toBe(true);
+		expect(controller.enqueue("c", "outcome", 0).accepted).toBe(true);
+		expect(controller.enqueue("d", "outcome", 0).accepted).toBe(false);
 	});
 });
 
 // ---------------------------------------------------------------------------
-// 6. Error storage, next item continues, success clears
+// 6. Attention priority and stale milestone supersession
+// ---------------------------------------------------------------------------
+
+describe("attention priority and milestone supersession", () => {
+	test("active speech is uninterrupted while waiting attention jumps outcomes and milestones", async () => {
+		const { controller, playbacks, completed } = makeController();
+		controller.enable();
+		controller.enqueue("active", "outcome", 0);
+		await tick();
+
+		controller.enqueue("outcome", "outcome", 1);
+		controller.enqueue("milestone", "milestone", 1);
+		controller.enqueue("attention", "attention", 2);
+		expect(playbacks.map(playback => playback.text)).toEqual(["active"]);
+
+		playbacks[0].resolve();
+		await tick();
+		playbacks[1].resolve();
+		await tick();
+		playbacks[2].resolve();
+		await tick();
+		expect(playbacks.map(playback => playback.text)).toEqual(["active", "attention", "outcome", "milestone"]);
+		playbacks[3].resolve();
+		await tick();
+		expect(completed).toEqual([true, true, true, true]);
+	});
+
+	test("waiting attention preserves FIFO order", async () => {
+		const { controller, playbacks } = makeController();
+		controller.enable();
+		controller.enqueue("active", "outcome", 0);
+		await tick();
+		controller.enqueue("outcome", "outcome", 1);
+		controller.enqueue("attention-one", "attention", 2);
+		controller.enqueue("attention-two", "attention", 3);
+
+		playbacks[0].resolve();
+		await tick();
+		playbacks[1].resolve();
+		await tick();
+		expect(playbacks.map(playback => playback.text)).toEqual(["active", "attention-one", "attention-two"]);
+		playbacks[2].resolve();
+		await tick();
+		playbacks[3].resolve();
+		await tick();
+	});
+
+	test("latest milestone replaces waiting progress and frees a full queue without callbacks for removed speech", async () => {
+		const { controller, playbacks, completed } = makeController();
+		controller.enable();
+		controller.enqueue("active", "outcome", 0);
+		await tick();
+		controller.enqueue("outcome-one", "outcome", 1);
+		controller.enqueue("outcome-two", "outcome", 2);
+		controller.enqueue("old-progress", "milestone", 3);
+
+		const replacement = controller.enqueue("latest-progress", "milestone", 4);
+		expect(replacement).toMatchObject({ accepted: true, superseded: ["old-progress"] });
+		expect(controller.status().queueDepth).toBe(3);
+
+		playbacks[0].resolve();
+		await tick();
+		playbacks[1].resolve();
+		await tick();
+		playbacks[2].resolve();
+		await tick();
+		expect(playbacks.map(playback => playback.text)).toEqual(["active", "outcome-one", "outcome-two", "latest-progress"]);
+		playbacks[3].resolve();
+		await tick();
+		expect(completed).toEqual([true, true, true, true]);
+	});
+
+	for (const task of [1, 2]) test(`outcome consumes only task-one progress with waiting task ${task}`, async () => {
+		const { controller, playbacks, completed } = makeController();
+		controller.enable();
+		controller.enqueue("active-progress", "milestone", 1);
+		await tick();
+		controller.enqueue("waiting-progress", "milestone", task);
+		const outcome = controller.enqueue("task-one-outcome", "outcome", 1);
+		expect(outcome.superseded).toEqual(task === 1 ? ["waiting-progress"] : undefined);
+		expect(playbacks.map(playback => playback.text)).toEqual(["active-progress"]);
+		playbacks[0].resolve();
+		await tick();
+		playbacks[1].resolve();
+		await tick();
+		if (task === 2) {
+			playbacks[2].resolve();
+			await tick();
+		}
+		expect(playbacks.map(playback => playback.text)).toEqual(task === 1
+			? ["active-progress", "task-one-outcome"]
+			: ["active-progress", "waiting-progress", "task-one-outcome"]);
+		expect(completed).toEqual(task === 1 ? [true, true] : [true, true, true]);
+	});
+
+	test("rejected invalid, disabled, and full-queue outcomes preserve waiting milestones", async () => {
+		const { controller, playbacks } = makeController();
+		controller.enable();
+		controller.enqueue("active", "outcome", 0);
+		await tick();
+		controller.enqueue("progress-one", "milestone", 1);
+		controller.enqueue("waiting-result", "outcome", 2);
+		controller.enqueue("outcome", "outcome", 3);
+
+		expect(controller.enqueue("\t", "outcome", 1).accepted).toBe(false);
+		expect(controller.enqueue("full", "outcome", 4).accepted).toBe(false);
+		expect(controller.status().queueDepth).toBe(3);
+
+		playbacks[0].resolve();
+		await tick();
+		playbacks[1].resolve();
+		await tick();
+		playbacks[2].resolve();
+		await tick();
+		expect(playbacks.map(playback => playback.text)).toEqual(["active", "progress-one", "waiting-result", "outcome"]);
+		playbacks[3].resolve();
+		await tick();
+
+		const disabled = makeController();
+		expect(disabled.controller.enqueue("disabled", "outcome", 1).accepted).toBe(false);
+		expect(disabled.controller.status().queueDepth).toBe(0);
+	});
+
+	test("outcomes and milestones preserve FIFO order when no attention is waiting", async () => {
+		const { controller, playbacks } = makeController();
+		controller.enable();
+		controller.enqueue("outcome-one", "outcome", 1);
+		controller.enqueue("milestone", "milestone", 2);
+		controller.enqueue("outcome-two", "outcome", 3);
+
+		await tick();
+		playbacks[0].resolve();
+		await tick();
+		playbacks[1].resolve();
+		await tick();
+		expect(playbacks.map(playback => playback.text)).toEqual(["outcome-one", "milestone", "outcome-two"]);
+		playbacks[2].resolve();
+		await tick();
+	});
+});
+
+// ---------------------------------------------------------------------------
+// 7. Error storage, next item continues, success clears
 // ---------------------------------------------------------------------------
 
 describe("error storage, next item, success clear", () => {
@@ -419,8 +566,8 @@ describe("error storage, next item, success clear", () => {
 		const { controller, playbacks, errors } = makeController();
 		controller.enable();
 
-		controller.enqueue("fail");
-		controller.enqueue("succeed");
+		controller.enqueue("fail", "outcome", 0);
+		controller.enqueue("succeed", "outcome", 0);
 
 		await tick(); // worker starts "fail"
 
@@ -460,8 +607,8 @@ describe("error storage, next item, success clear", () => {
 			(msg) => errors.push(msg),
 		);
 		controller.enable();
-		controller.enqueue("first"); // throws
-		controller.enqueue("second"); // succeeds
+		controller.enqueue("first", "outcome", 0); // throws
+		controller.enqueue("second", "outcome", 0); // succeeds
 
 		await tick(); // worker processes both synchronously within one microtask run
 
@@ -478,7 +625,7 @@ describe("error storage, next item, success clear", () => {
 	test("error is not cleared when toggling notifications", async () => {
 		const { controller, playbacks } = makeController();
 		controller.enable();
-		controller.enqueue("fail");
+		controller.enqueue("fail", "outcome", 0);
 		await tick();
 
 		playbacks[0].reject(new Error("retained"));
@@ -501,7 +648,7 @@ describe("disable suppresses cancellation as error", () => {
 	test("disable before worker runs: no playback started, no error recorded", async () => {
 		const { controller, playbacks, errors } = makeController();
 		controller.enable();
-		controller.enqueue("hello");
+		controller.enqueue("hello", "outcome", 0);
 		// Worker microtask still pending.
 		await controller.disable();
 		await tick(); // Drain the worker microtask with an empty queue.
@@ -514,7 +661,7 @@ describe("disable suppresses cancellation as error", () => {
 	test("disable during active playback: stop resolves exited, no error recorded", async () => {
 		const { controller, playbacks, errors } = makeController();
 		controller.enable();
-		controller.enqueue("playing");
+		controller.enqueue("playing", "outcome", 0);
 		await tick(); // worker starts
 
 		expect(playbacks).toHaveLength(1);
@@ -532,11 +679,11 @@ describe("disable suppresses cancellation as error", () => {
 	test("disable clears remaining waiting items along with active playback", async () => {
 		const { controller, playbacks } = makeController();
 		controller.enable();
-		controller.enqueue("active");
+		controller.enqueue("active", "outcome", 0);
 		await tick(); // worker starts "active"
 
-		controller.enqueue("queued-one");
-		controller.enqueue("queued-two");
+		controller.enqueue("queued-one", "outcome", 0);
+		controller.enqueue("queued-two", "outcome", 0);
 		expect(controller.status().queueDepth).toBe(2);
 
 		await controller.disable();
@@ -555,11 +702,11 @@ describe("shutdown cleanup", () => {
 	test("shutdown clears queue and stops active playback", async () => {
 		const { controller, playbacks, errors } = makeController();
 		controller.enable();
-		controller.enqueue("first");
+		controller.enqueue("first", "outcome", 0);
 		await tick(); // worker starts
 
-		controller.enqueue("second");
-		controller.enqueue("third");
+		controller.enqueue("second", "outcome", 0);
+		controller.enqueue("third", "outcome", 0);
 		expect(controller.status().queueDepth).toBe(2);
 
 		await controller.shutdown();
@@ -573,7 +720,7 @@ describe("shutdown cleanup", () => {
 	test("shutdown with no active playback is a no-op and resolves immediately", async () => {
 		const { controller } = makeController();
 		controller.enable();
-		controller.enqueue("waiting");
+		controller.enqueue("waiting", "outcome", 0);
 		// Worker hasn't started yet.
 		await controller.shutdown();
 		await tick();
@@ -584,7 +731,7 @@ describe("shutdown cleanup", () => {
 	test("shutdown does not record a cancellation error", async () => {
 		const { controller, playbacks } = makeController();
 		controller.enable();
-		controller.enqueue("hello");
+		controller.enqueue("hello", "outcome", 0);
 		await tick();
 
 		await controller.shutdown();

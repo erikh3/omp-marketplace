@@ -1,10 +1,10 @@
-# Speak Notifications plugin specification
+# Speak notifications plugin specification
 
 ## Purpose
 
-Add a self-contained personal OMP plugin named `speak-notifications`. It gives agents deliberate, short text-to-speech notifications without enabling OMP's automatic assistant vocalization.
+`speak-notifications` gives the primary OMP agent a deliberate, local text-to-speech tool. It does not enable OMP automatic assistant vocalization. The plugin is self-contained and needs no skill, `AGENTS.md` rule, or separate OMP configuration.
 
-The plugin must be installable from this marketplace without a skill, `AGENTS.md` rule, or separate OMP configuration. Notifications start disabled in every session. The user enables them with `/speak on`.
+Notifications start disabled in every new or resumed session. The user enables them with `/speak on`.
 
 ## User interface
 
@@ -12,121 +12,117 @@ The plugin must be installable from this marketplace without a skill, `AGENTS.md
 
 | Command | Behavior |
 | --- | --- |
-| `/speak` | Toggle the current session state using the same enable or disable behavior below. When enabling, immediately show full status. When disabling, show only the off notice. |
-| `/speak on` | Enable deliberate speech notifications for the current session. Append a visible, agent-visible system notice. |
-| `/speak off` | Disable notifications for the current session. Clear queued notifications and stop owned synthesis and playback processes. Append a visible, agent-visible system notice. |
-| `/speak status` | Show session state, playback state, waiting queue depth, queue limit, last playback error, and the parent session's resolved local TTS model, voice, and speed. |
+| `/speak` | Toggle the current session. Enabling shows full status. Disabling shows only the off notice. |
+| `/speak on` | Enable notifications for the current session. |
+| `/speak off` | Disable notifications, clear waiting notifications, and stop owned synthesis and playback processes. |
+| `/speak status` | Show session state, playback state, waiting queue depth, queue limit, last playback error, and resolved local TTS model, voice, and speed. |
 
-Nonempty arguments use an exact subcommand. Invalid input reports usage without changing state. Argument completion suggests `on`, `off`, and `status` filtered by the typed prefix. Empty arguments show no suggestions, so Enter on bare `/speak` toggles rather than selecting a subcommand.
+Nonempty arguments use an exact subcommand. Invalid input reports usage without changing state. Argument completion suggests `on`, `off`, and `status` for a typed prefix. Empty arguments have no suggestions, so bare `/speak` toggles.
 
-### Defaults and local TTS
+The plugin has no settings and persists no notification state. Every session starts disabled. The waiting queue limit is three messages, excluding current playback.
 
-The plugin registers no OMP settings and persists no notification state. Every session starts disabled. The waiting queue limit is fixed at three messages, excluding current playback.
+### Local TTS
 
-Speech uses OMP's local TTS engine only. Before each playback, resolve the local synthesis model from the parent session's speech-role candidate chain using OMP's local model selection rules, including its local default when the chain contains no local candidate. Resolve voice and speed from the parent session's `tts.localVoice` and `tts.localSpeed` values. Pass the resolved local model ID, voice, and speed explicitly to `omp say` with `--model`, `--voice`, and `--speed`. Do not rely on the child process independently loading the same configuration. The plugin defines no voice list and does not use cloud TTS providers.
+Speech uses OMP local TTS only. Before each playback, resolve the local synthesis model from the parent session's speech-role candidate chain with OMP local model selection rules. Resolve voice and speed from the parent session's `tts.localVoice` and `tts.localSpeed`. Pass the resolved model ID, voice, and speed to `omp say` with `--model`, `--voice`, and `--speed`.
 
-Target OMP 18.16.0 or a version verified to support the same APIs. `tts.localModel` is obsolete and must not be read or recreated. Use OMP's host-bound settings registry and speech-role resolution APIs rather than copying their selection logic. Resolve against the parent session's live settings and model registry; do not substitute independently loaded persisted values. Verify imported API subpaths against the compiled OMP executable, not only the source SDK.
+Target OMP 18.16.0 or a version with the same APIs. Do not read or recreate obsolete `tts.localModel`. Use the host settings registry and speech-role resolution APIs against the parent session's live settings and model registry.
 
 ## Agent interface
 
-Register `speak_notification` once at extension startup in the primary session only. Keep it active and visible to the primary agent for the full session, including while notifications are disabled. Its name, schema, description, and the static guidance below must never change during a session. Inject the guidance only into the primary session.
+Register `speak_notification` once at extension startup in the primary session only. Keep it visible to the primary agent for the full session, including while notifications are disabled. Its name, schema, description, and static policy stay unchanged during a session. Subagents do not receive the tool or guidance.
 
 ### Tool contract
 
+The tool accepts only:
+
 ```text
-speak_notification({ text: string })
+speak_notification({
+  text: string,
+  purpose: "outcome" | "attention" | "milestone"
+})
 ```
 
-- Accept one plain-text notification.
-- For schema-valid calls, check enabled state first. While disabled, return the disabled result without text validation. While enabled, reject any Unicode `Cc` control character in the original text, including newlines and tabs. Then trim leading and trailing whitespace and reject empty text or text exceeding 500 Unicode code points. Queue the trimmed text.
-- Return immediately. It must not wait for speech synthesis or playback.
-- If notifications are enabled, enqueue the message in FIFO order and report its one-based position in the waiting queue and the waiting queue depth at enqueue time. Both exclude current playback; this is an enqueue acknowledgement, not confirmation that speech succeeded.
-- If the queue is full, reject the new message and report that it was not spoken. This should be exceptional: static agent guidance limits notifications to material events and one per task phase.
-- If notifications are disabled, do not start or queue speech. Return: `Speech notifications are disabled. Do not retry unless the user enables them with /speak on.`
-- The tool must never invoke an additional overlapping playback process.
+The primary agent writes every spoken text. The plugin does not supply fixed phrases, derive speech from a transcript or final answer, or use a classifier or narrator.
 
-The agent must never call raw `omp say` or use Bash for speech. The extension owns all process management.
+For schema-valid calls, first check enabled state. While disabled, return the disabled result without text validation or queueing. While enabled, reject Unicode `Cc` control characters in original text, then blank or trimmed text over 500 Unicode code points. Duplicate and five-minute milestone suppression happen before queue changes. Validation, duplicate suppression, frequency suppression, and capacity rejection leave every waiting item unchanged. They do not consume deduplication or milestone spacing.
 
-### Static agent guidance
+On queue acceptance, return immediately with waiting-only position and depth snapshots. The result may include `superseded`, the exact trimmed texts removed from waiting playback. A superseded item will not play and never counts as playback success. Queue acceptance does not confirm successful synthesis or playback. The tool must not wait for playback. The agent must not invoke raw `omp say` or Bash for speech.
 
-The stable policy lives in `plugins/speak-notifications/src/guidance.ts`. Inject it into the primary session before each agent run without changing the static prefix when toggled.
+Within a user task, normalize text by trimming and normalizing whitespace. Remember at most 32 normalized texts. If the same text was already accepted, return a non-error result with `accepted: false`, `suppressed: true`, and text that says not to retry. The result does not queue speech. Starting a new user task clears this text memory. Disabling notifications and resuming a session reset all notification memory.
 
-Require one short outcome for each substantial task, including negative or inconclusive outcomes. Implementation, debugging, multi-source research, reviews, and long operations normally qualify. Quick answers and routine commands normally stay silent. The agent judges significance and wording. Blockers and decisions deserve speech when they need user attention or materially change the plan, not for immediately recovered errors. Combine related outcomes and child results. A milestone is not the final outcome. Explicit user requests for silence override optional reminders.
+Accepted milestones require at least 300000 milliseconds since any accepted speech. Suppress an early milestone with the same non-error, do-not-retry result. Outcomes and attention requests bypass this spacing. Any accepted speech starts the milestone interval.
 
-After work qualifies as a candidate substantial task, include at most one optional completion assessment in the next existing provider request, before its final answer. Candidates have a successful file edit/write, three work calls, or at least one work call over a minute. Do not count speech calls as work. Preserve task significance across earlier notifications so milestones and failed playback cannot suppress the assessment. Skip disabled sessions and subagents without consuming the assessment. Let the agent skip speech if the outcome was already announced; never force speech or repeat the check for the same task. Do not create a post-answer continuation. Ordinary empty-response recovery remains unchanged.
+### Static policy and live state
 
-### Silence reminder
+The stable policy lives in `plugins/speak-notifications/src/guidance.ts` as the registered tool description. It tells the primary agent to:
 
-Start a five-minute timer on enable. Pause it while speech is queued, synthesizing, or playing. Reset its silence baseline after successful playback completion, not enqueue acceptance. On failure, retain elapsed silence but delay the next reminder for five minutes.
+- announce the outcome of substantial implementation, debugging, multi-source research, reviews, or long operations, including negative and inconclusive outcomes;
+- announce material user action before waiting for a decision, approval, authentication, or blocker removal;
+- optionally announce a meaningful milestone only when it contains new important information.
 
-At expiry, retain one pending hidden reminder for the next model request without interrupting tools, waits, or in-flight inference. State elapsed silence and ask whether a meaningful milestone, outcome, or user-action blocker deserves speech. The agent may continue silently. Rearm after consuming the reminder, at most once per five minutes. Idle sessions keep one pending reminder without starting a model turn. Turning off, resume, and shutdown clear timer and pending state. Off freezes the reset clock until enabled again. Timers must not keep the process alive.
+The agent judges significance, wording, frequency, and timing. It combines related results and child outcomes. It does not speak for routine reads, edits, intermediate tests, recoverable errors, logs, code, greetings, quick answers, or unchanged status. A milestone does not replace a final outcome.
 
-Toggling notifications does not change the tool schema or static policy. Current state and reminders are per-request context, not changes to the cached static prompt prefix.
+Each primary-agent request receives a compact current-state developer note ahead of existing messages. The note is metadata, not a task or acknowledgement request. It contains no notification history and creates no extra model request.
 
-## Session state and model feedback
+The plugin does not create timer reminders or other prompts, wake idle agents, intercept tool calls, block user actions, request silent decisions, use IDs or boundaries, recover omitted notifications, or record unresolved notification status. It does not alter ordinary empty-response recovery.
 
-The plugin owns mutable session-local state:
+## Session state and feedback
+
+The plugin owns session-local state:
 
 ```text
 enabled: boolean
-activePlayback: boolean // True throughout an owned synthesis/playback process's lifetime.
-queue: string[]
+activePlayback: boolean
+queue: Array<{ text: string, purpose: "outcome" | "attention" | "milestone", task: number }>
 lastPlaybackError: string | null
 ```
 
-Whenever a primary session starts or is resumed, initialize `enabled` to `false`, `activePlayback` to `false`, `queue` to empty, and `lastPlaybackError` to `null`. Do not restore notification state from the transcript. Append a new agent-visible disabled system notice after any restored history, but do not display a startup chip.
+It also keeps bounded notification memory needed for text suppression and milestone spacing. Every primary session start or resume initializes the state with notifications disabled, no active playback, an empty queue, and no playback error. It does not restore notification state from the transcript.
 
-`/speak on` and `/speak off` append attributed system notices containing full agent instructions. The transcript renderer shows only a compact sentence, never the internal custom-type heading or instruction body:
+Startup state reaches the agent without a visible chip. Toggle notices render only:
 
 - `Speech notifications on.`
 - `Speech notifications off.`
 
-Append toggle notices through OMP's supported custom-message mechanism. Before each primary model request, append current enabled state in transient model context so it overrides restored notices. Do not rewrite the static system-prompt prefix or persist this per-request context.
+The live-state developer note overrides restored notices for the next primary request.
 
 ## Queue and playback
 
-- One FIFO worker owns playback.
-- Only start the next item after the active process exits.
-- It starts `omp say` asynchronously with explicit `--model`, `--voice`, and `--speed` values resolved from the parent session under the local TTS contract above.
-- On process failure, discard the failed item, store the error in `lastPlaybackError`, show a visible error immediately, and continue with the next item. `/speak status` retains the latest error until a successful playback clears it or the session ends. Toggling notifications does not clear it.
-- `/speak off` clears queued items and stops owned synthesis and playback processes, including their playback children. This also applies while synthesis is running but audio has not started. Record explicit termination as a normal state change, not a playback failure. Do not add special handling or tests for rapid off/on toggles.
-- Queue-limit rejection is explicit. Never silently drop a message.
-- On session shutdown, clear the queue, stop owned synthesis and playback processes, and release worker resources.
+- One serial worker owns playback. It starts the next item only after the active process exits.
+- Waiting attention messages have priority. A new attention message inserts after existing waiting attention messages and before all ordinary waiting messages. Attention messages retain FIFO order within their priority. Outcome and milestone messages retain FIFO order with one another.
+- Active playback is never reordered, removed, or interrupted by a new notification. Every active phrase runs to process completion unless `/speak off` cancels it.
+- Before capacity is evaluated, a new milestone removes every waiting milestone across all tasks. A new outcome removes waiting milestones for the same internal task only. An attention message does not supersede waiting items.
+- The limit remains three waiting items, excluding active playback. Compute prospective supersession first, then reject atomically when adding the new item would still exceed that limit. A rejected call removes no waiting item.
+- Start `omp say` asynchronously with the resolved local `--model`, `--voice`, and `--speed` values. On process failure, discard the failed item, store the error in `lastPlaybackError`, show a visible error, and continue with the next item. A successful playback clears the retained error.
+- `/speak off` clears waiting items and stops owned synthesis and playback, including child playback processes. Explicit termination is not a playback failure. On session shutdown, clear the queue, stop owned processes, and release worker resources.
+
+First playback can download the local model. `/speak on` does not guarantee that synthesis is ready. Show synthesis and playback errors immediately and retain the latest error in `/speak status`.
 
 ## Non-goals
 
 - Do not enable or alter OMP `speech.enabled` automatic vocalization.
-- Do not alter Speech-to-Text, dictation, microphone access, or Speech-to-Text submit triggers.
-- Do not make changes to repository `AGENTS.md` files.
-- Do not require a skill for agent instructions.
+- Do not alter speech-to-text, dictation, microphone access, or speech-to-text submit triggers.
 - Do not register plugin settings or persist notification state.
-
-## Tool visibility
-
-The plugin must expose `speak_notification` to the primary session agent only. It must not expose the tool to subagents. Verified primary-only registration on the target OMP version is an implementation prerequisite. If unavailable, report the limitation and obtain an explicit revision of acceptance criterion 3 before implementation. Agent guidance alone does not meet this requirement.
-
-## Local TTS readiness
-
-`/speak on` enables notifications without requiring plugin configuration. It does not guarantee that local synthesis is ready. First playback may need a model download or encounter missing local TTS prerequisites. Show synthesis and playback errors immediately and retain the latest error in `/speak status`.
-
-A local TTS readiness check is optional. Do not require extensive readiness or download testing; normal playback-failure coverage is sufficient.
+- Do not expose the tool to subagents.
+- Do not classify significance, compose speech, read transcripts, or force tool calls.
+- Do not add timer prompts, autonomous turns, interception, blocking, notification enforcement, or retry recovery.
 
 ## Acceptance criteria
 
-1. Installing and enabling the plugin requires no configuration before `/speak on` works.
-2. Every new or resumed session starts disabled with an empty queue and no playback error, regardless of previous state or restored notices. The plugin registers no settings and persists no notification state.
-3. The primary session agent sees `speak_notification` and stable usage guidance from session start. Subagents do not see or invoke the tool.
-4. While disabled, schema-valid tool calls produce no audio, return the disabled result without text validation, and do not queue anything.
-5. `/speak on` enables queueing and appends an agent-visible enabled system notice. Startup and `/speak off` append disabled system notices; the latest notice states the current session state. Startup notices have no visible chip. Toggle chips show only `Speech notifications on.` or `Speech notifications off.`, while full instructions remain in model context. Bare `/speak` toggles using those same state transitions, showing full status only when enabling and only the off notice when disabling. Argument completion offers matching `on`, `off`, and `status` options after a typed prefix without intercepting the bare toggle.
-6. `/speak off` clears waiting items, stops owned synthesis and playback processes, and appends the disabled notice. Cancellation works before audio begins as well as during playback, without recording a playback error.
-7. With working local TTS and notifications enabled, three rapid tool calls play in request order without overlap. Each call returns its enqueue acknowledgement without awaiting synthesis or playback.
-8. The fixed capacity of three waiting messages excludes current playback. It rejects only the new excess notification and reports the rejection. Enqueue results report waiting-only position and depth.
-9. Tool name, schema, description, and plugin-owned static guidance remain identical before and after `/speak on` or `/speak off`. Appended notices and transient live-state context carry enabled state.
-10. Automatic OMP vocalization and Speech-to-Text settings remain unchanged.
-11. Unit tests cover commands, disabled behavior, FIFO ordering, capacity, playback failure, explicit playback termination, and shutdown cleanup.
-12. Runtime verification links the plugin, restarts OMP, and exercises disabled, enabled, queued, and off-during-playback flows.
-13. Playback uses local TTS. It selects a local model from the parent session's speech-role chain using OMP's local selection rules and explicitly passes its model ID and the parent session's resolved `tts.localVoice` and `tts.localSpeed` values to `omp say`. It does not read or recreate `tts.localModel`.
-14. While enabled, blank, over-limit, and control-character-containing text is rejected under the tool contract's validation order. Playback failures show an immediate visible error and appear in `/speak status`; successful playback clears the retained error.
-15. With notifications enabled, an autonomous OMP session announces a blocker or decision request and the outcome of a long-running operation without any user prompt naming the speech tool or requesting speech.
-16. A five-minute silence expiry supplies one hidden reminder at the next model request, coalesces while idle without model wakeups, and resets after successful playback completion. Disable, resume, and shutdown cancel pending reminders and freeze the reset timer.
-17. Candidate substantial work receives at most one optional completion assessment before its final answer, including after progress notifications. Quick work and disabled sessions receive no assessment. The model can skip speech if an outcome was already announced. Completion never creates a redundant continuation or an empty-response retry loop.
+1. Installing and enabling the plugin needs no configuration before `/speak on` works.
+2. Every new or resumed session starts disabled with an empty queue and no playback error, regardless of prior state or restored notices. The plugin persists no notification state.
+3. The primary agent sees `speak_notification` and stable policy from session start. Subagents do not see or invoke it.
+4. The tool schema contains only `text` and `purpose`, where purpose is `outcome`, `attention`, or `milestone`.
+5. While disabled, schema-valid calls produce no audio, return the disabled result without text validation, and do not queue anything.
+6. `/speak off` clears waiting items, stops owned synthesis and playback processes, and appends the disabled notice. Cancellation works before audio begins and during playback without recording a playback error.
+7. With working local TTS and notifications enabled, accepted calls play serially without overlap. An active phrase keeps its place until it exits. Each call returns its enqueue acknowledgement without waiting for synthesis or playback.
+8. Attention messages play before waiting ordinary messages, preserve FIFO order within attention priority, and never interrupt active playback. Outcomes and milestones preserve FIFO order among ordinary waiting messages.
+9. The fixed capacity of three waiting messages excludes current playback. The plugin evaluates capacity after prospective milestone supersession and rejects atomically when still full.
+10. A new milestone supersedes all waiting milestones across tasks. A new outcome supersedes only waiting milestones for its own internal task. Active playback is never superseded. The acceptance result returns the exact trimmed superseded texts and waiting position and depth snapshots. Superseded items do not play and are not recorded as playback success.
+11. Blank, over-limit, control-character, duplicate, frequency, and capacity rejections leave all waiting messages unchanged. Rejected calls do not consume text suppression or milestone spacing.
+12. Within a user task, accepted normalized text is suppressed on a repeated call. The suppressed result is not an error, says not to retry, and queues nothing. The plugin remembers at most 32 texts and clears them for a new user task.
+13. An accepted milestone less than five minutes after any accepted speech is suppressed without error or queueing. Accepted outcomes and attention requests bypass that gate. Disable and resume reset notification memory.
+14. The plugin uses no timer prompt, autonomous model turn, transcript reader, final-answer reader, classifier, fixed spoken text, ID, boundary, silent-decision path, call interception, blocking, recovery, or unresolved status.
+15. Unit tests cover commands, disabled behavior, serial playback, attention priority, cross-task and same-task milestone supersession, capacity after prospective supersession, rejection atomicity, validation, duplicate suppression, milestone spacing, playback failure, explicit playback termination, and shutdown cleanup.
+16. Runtime verification links the plugin, restarts OMP, and exercises disabled, enabled, attention priority, milestone supersession, outcome task boundaries, duplicate suppression, milestone spacing, and off-during-playback flows.
+17. Playback uses local TTS and explicitly passes a model selected from the parent session's speech-role chain with parent `tts.localVoice` and `tts.localSpeed`. It does not read or recreate `tts.localModel`.

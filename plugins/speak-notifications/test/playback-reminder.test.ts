@@ -12,7 +12,7 @@ describe("playback reminder lifecycle", () => {
 		}), () => {}, success => completed.push(success));
 		controller.enable();
 		try {
-			controller.enqueue("One");
+			controller.enqueue("One", "outcome", 0);
 			await Promise.resolve();
 			expect(completed).toEqual([]);
 			pending.resolve();
@@ -20,14 +20,14 @@ describe("playback reminder lifecycle", () => {
 			expect(completed).toEqual([true]);
 
 			pending = Promise.withResolvers<void>();
-			controller.enqueue("Two");
+			controller.enqueue("Two", "outcome", 0);
 			await Promise.resolve();
 			pending.reject(new Error("Synthesis failed"));
 			await Promise.resolve();
 			expect(completed).toEqual([true, false]);
 
 			pending = Promise.withResolvers<void>();
-			controller.enqueue("Three");
+			controller.enqueue("Three", "outcome", 0);
 			await Promise.resolve();
 			await controller.disable();
 			expect(completed).toEqual([true, false, false]);

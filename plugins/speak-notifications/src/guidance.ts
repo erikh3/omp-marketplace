@@ -1,19 +1,12 @@
-export const GUIDANCE = `## Deliberate speech notifications
+export const GUIDANCE = `Queue a short, agent-authored spoken update with text and purpose. Only the primary agent uses this tool, and only while speech notifications are enabled. Never use Bash or another tool for speech.
 
-Use \`speak_notification\` for deliberate text-to-speech notifications only. It is the only permitted speech path. Do not invoke \`omp say\` or any other speech command through Bash. Subagents must not invoke this tool.
+Choose one of three trigger points:
+- outcome: Report a completed substantial task or an important awaited result, including failure or an inconclusive investigation. Summarize what changed or was learned. A quick lookup, small edit, routine test, or filename choice needs no speech.
+- attention: Before a material approval, decision, authentication step, or blocker needs the user, explain the required action. Execute speech before opening the question or review; never place it after a blocking tool in the same batch.
+- milestone: During long work, report new important information only. At most one progress update per five minutes; elapsed time alone is not a reason to speak.
 
-Use the current speak-notifications context for enabled state; it overrides older state notices. While disabled, do not call the tool. Explicit user requests for silence take precedence over reminder suggestions.
+Write one or two plain sentences, normally under 25 words. Do not read paths, code, logs, markdown, or your final answer aloud. Combine related child results; do not notify per tool or subagent. Do not announce task starts or routine progress. A milestone is not the final outcome. Outcomes and attention do not wait for the milestone interval.
 
-When enabled, you MUST announce the outcome of each substantial task once, including negative or inconclusive outcomes. Implementation, debugging, multi-source research, reviews, and long operations usually qualify. Judge significance by the user's goal, not tool count alone. A quick answer, single lookup, typo fix, or routine command normally does not qualify. Choose the message yourself; do not wait for the user to request speech.
+Attention speech moves ahead of waiting outcomes and milestones, without interrupting the current sentence. Only the latest waiting milestone is retained. An accepted outcome removes waiting milestones from that task. The tool reports removed texts as superseded; they will not play. Queue acceptance is not playback completion.
 
-Announce blockers or decisions when they need user attention or materially change the plan. Do not announce recoverable errors you resolve immediately. Announce completed or failed long-running operations. During lengthy work, a milestone deserves speech only when it changes what the user knows. Timer reminders ask you to assess significance, not invent progress or speak just because time passed.
-
-Before finishing, check whether the task has an unannounced substantial outcome. A prior progress notification does not replace its final outcome. Combine related outcomes and child-agent results; only the primary agent speaks. Do not announce each tool call, todo item, search, retry, greeting, or repeated status. Do not read markdown, paths, URLs, code, tables, or logs aloud.
-
-Use one or two plain sentences, normally under 25 words. Lead with the outcome or required action. Do not repeat an event already announced. Keep routine tool progress in text. A reminder or completion check may be declined silently when nothing merits speech.`;
-
-export const COMPLETION_CHECK = "Speech notifications are enabled. Before your final answer, assess whether this task has an unannounced substantial outcome or unresolved user-action blocker. If so, call speak_notification with one short outcome. A prior milestone is not the final outcome. If the task is trivial, already announced, or the user requested silence, continue the task without speech. This check will not repeat for this task.";
-
-export function silenceReminder(elapsedMs: number) {
-	return `Speech notifications are enabled. No speech notification has finished successfully for ${Math.floor(elapsedMs / 1000)} seconds. Assess whether there is a meaningful outcome, milestone, or user-action blocker to announce. If not, continue silently. Do not invent progress or speak solely because time passed.`;
-}
+Silence needs no tool call or explanation. Do not repeat an already queued update or rephrase it to bypass suppression. A suppressed update must not be retried. Never invent progress. Explicit user silence overrides these rules. Speech is best-effort: do not block a question, retry a task, or add another turn just to announce it.`;

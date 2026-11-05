@@ -11,23 +11,33 @@ Deliberate local speech notifications for the primary OMP agent. Requires OMP 18
 
 `/speak` toggles notifications. Enabling immediately prints full status; disabling shows only `Speech notifications off.` `/speak on` and `/speak off` set the state explicitly; `/speak status` shows it without changing it. Disabling clears waiting messages and stops owned synthesis and playback. Argument completion suggests `on`, `off`, and `status` after you type a prefix, such as `/speak o` or `/speak s`. Empty arguments show no suggestions so Enter still toggles.
 
-Startup state is communicated to the agent without a visible chip. State changes show `Speech notifications on.` or `Speech notifications off.`; a bare toggle that enables notifications also shows full status below it. Full state instructions stay hidden in model context. Subagents do not receive the tool or its guidance.
+Startup state is communicated to the agent without a visible chip. State changes show `Speech notifications on.` or `Speech notifications off.` Subagents do not receive the tool or its guidance.
 
-When enabled, the primary agent must announce substantial task outcomes and blockers or decisions needing user attention. Implementation, debugging, multi-source research, reviews, and long operations normally qualify, including negative or inconclusive outcomes. Quick answers and routine commands normally stay silent. The agent judges significance and wording; related outcomes and child results are combined. A milestone does not replace the final outcome. Routine progress, recoverable errors, greetings, logs, code, and repeated status stay text-only.
+## Notification policy
 
-The plugin supplies current enabled state before each model request so restored notices cannot override it. After work qualifies as a candidate substantial task, the next existing model request receives one optional completion assessment before the final answer. Candidates have a successful file edit/write, at least three work calls, or at least one work call in a task lasting a minute. These select when to ask the agent to judge, not when to force speech. Earlier notifications do not suppress this assessment: the agent can skip speech if the final outcome was already announced. The assessment never starts a post-answer turn, so declining it cannot trigger empty-response retries. Ordinary empty-response recovery remains unchanged.
+When enabled, only the primary agent writes and requests speech. It chooses the wording, frequency, and trigger point. The tool accepts only text and purpose:
 
-## Silence reminder
+```text
+speak_notification({ text: "The deployment is blocked by an expired credential.", purpose: "attention" })
+```
 
-Enabling starts a five-minute cooldown. Queued speech pauses it through synthesis and playback. A successful playback completion resets it to five minutes; enqueue acceptance alone does not count as successful speech. Failures preserve the last-success time but defer another reminder for five minutes.
+Use `outcome` for a substantial task result, including a negative or inconclusive result. Use `attention` before waiting for material user action, such as a decision, approval, authentication, or blocker removal. Use `milestone` only for meaningful new progress that does not replace the final outcome.
 
-At expiry, one hidden reminder becomes pending for the next model request, stating how long speech has been silent. A running tool finishes uninterrupted. The agent may announce a meaningful milestone or continue silently. The reminder does not force speech or block urgent notifications. Reminders repeat at most once per five minutes while working. An idle session retains one pending reminder without waking the model. Turning speech off resets and freezes the timer and discards pending reminders. Resume and shutdown also clear it. Explicit user requests for silence take precedence.
+Do not announce routine progress, reads, edits, intermediate tests, recoverable errors, logs, code, quick answers, or unchanged status. Combine related results. A milestone does not replace a final outcome. The plugin does not classify work, read transcripts or final answers, supply fixed spoken phrases, create timer prompts, wake the agent, intercept calls, block user actions, or make additional model turns.
+
+The tool description contains the stable policy. Each primary-agent request receives a compact live-state note ahead of existing messages. The note is metadata, not a user request. It does not contain notification history or create a follow-up request.
+
+The plugin suppresses the same trimmed, whitespace-normalized text within a user task. It remembers at most 32 texts. Starting a new task clears that text memory. Disabling notifications or resuming a session resets all notification memory. A suppressed call returns a non-error result with `accepted: false`, `suppressed: true`, and a message that says not to retry. Do not retry suppressed calls. Invalid text and a full queue remain errors and do not consume suppression state.
+
+Accepted `milestone` speech is limited to one per five minutes measured from any accepted speech. `outcome` and `attention` speech bypass that limit. Queue acceptance, not playback completion, makes speech accepted. The plugin does not consume a milestone interval or remember text when it rejects a call.
 
 ## Playback and limits
 
-A single FIFO worker runs `omp say` without overlapping plugin playback. It passes the parent session's resolved local speech model, voice, and speed explicitly. Cloud TTS and OMP automatic vocalization are unchanged.
+A single serial worker runs `omp say` without overlapping plugin playback. It passes the parent session's resolved local speech model, voice, and speed explicitly. Cloud TTS and OMP automatic vocalization are unchanged.
 
-Three messages may wait, excluding active playback. An accepted tool call returns immediately with its waiting-only position and depth, not a playback-success claim. Excess messages are rejected. Enabled calls reject blank text, Unicode control characters, and trimmed text over 500 Unicode code points. Disabled calls return the disabled notice without queueing.
+Waiting `attention` messages have priority over waiting `outcome` and `milestone` messages. Attention messages keep FIFO order among themselves and insert after existing waiting attention messages. Ordinary waiting messages keep FIFO order. Nothing interrupts the active phrase.
+
+There can be three waiting messages, excluding active playback. Before capacity is checked, a new `milestone` replaces every waiting milestone in the session. A new `outcome` removes waiting milestones for its own task only. Active playback never changes. The result reports a waiting-only position and depth snapshot and, when applicable, the exact trimmed messages superseded from the waiting queue. Superseded messages will not play and do not count as playback success. If prospective supersession still leaves three waiting messages, the call is rejected atomically and removes nothing. Invalid text, capacity, five-minute frequency, and duplicate rejections leave all queued speech unchanged.
 
 First playback may download the local model. `/speak on` does not guarantee synthesis readiness. Failures are shown immediately and retained in `/speak status` until successful playback clears them. Disabling notifications does not clear a prior error.
 

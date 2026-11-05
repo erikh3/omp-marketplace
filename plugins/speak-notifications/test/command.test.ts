@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { ExtensionAPI, ExtensionCommandContext, RegisteredCommand } from "@oh-my-pi/pi-coding-agent";
+import * as zod from "@oh-my-pi/omptype/zod";
 
 import speakNotifications from "../src/index.ts";
 
@@ -9,7 +10,7 @@ function commandHarness() {
 	const warnings: string[] = [];
 	// Only the command runs here; session setup and playback belong to runtime verification.
 	const pi = {
-		zod: { object: () => ({}), string: () => ({}) },
+		zod,
 		on() {},
 		registerMessageRenderer() {},
 		registerCommand(_name: string, options: Omit<RegisteredCommand, "name">) { command = options; },
@@ -17,6 +18,7 @@ function commandHarness() {
 	} as unknown as ExtensionAPI;
 	const ctx = {
 		agent: { kind: "main" },
+		getAsyncJobSnapshot: () => null,
 		ui: { notify(message: string) { warnings.push(message); } }
 	} as unknown as ExtensionCommandContext;
 	speakNotifications(pi);

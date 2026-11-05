@@ -1,6 +1,15 @@
-/** Session-local FIFO queue and owned playback lifecycle. */
+/** Session-local priority queue and owned playback lifecycle. */
 
 import type { Playback } from "./playback.ts";
+
+export type NotificationPurpose = "outcome" | "attention" | "milestone";
+
+/** Waiting speech with host-owned task identity, separate from active playback. */
+interface QueuedNotification {
+	text: string;
+	purpose: NotificationPurpose;
+	task: number;
+}
 
 /** Synchronous result returned by {@link NotificationController.enqueue}. */
 export interface EnqueueResult {
@@ -18,6 +27,8 @@ export interface EnqueueResult {
 	 * Excludes current playback.  Present only when `accepted` is `true`.
 	 */
 	depth?: number;
+	/** Previously queued milestone texts removed by this acceptance; they will not play. */
+	superseded?: string[];
 }
 
 /** Session-state snapshot returned by {@link NotificationController.status}. */
@@ -42,12 +53,23 @@ export const DISABLED_MESSAGE =
 
 const QUEUE_LIMIT = 3;
 
+/** Validates speak text without inspecting session queue capacity. */
+export function validateNotificationText(text: string): EnqueueResult {
+	if (/\p{Cc}/u.test(text)) return { accepted: false, message: "Notification text contains a Unicode Cc control character (e.g. newline, tab). Remove control characters before calling." };
+	const trimmed = text.trim();
+	if (trimmed.length === 0) return { accepted: false, message: "Notification text is empty after trimming." };
+	let codePoints = 0;
+	for (const _character of trimmed) if (++codePoints > 500) break;
+	if (codePoints > 500) return { accepted: false, message: "Notification text exceeds the 500 code-point limit after trimming." };
+	return { accepted: true, message: trimmed };
+}
+
 function errorMessage(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
 }
 
 /**
- * Manages a FIFO speech-notification queue with a single serial playback worker.
+ * Manages attention-first waiting speech with a single serial playback worker.
  *
  * Enqueue is synchronous and returns immediately.  The worker starts via
  * `queueMicrotask` so a rapid burst of enqueue() calls can fill the full
@@ -61,7 +83,7 @@ export class NotificationController {
 
 	private enabled = false;
 	private activePlayback = false;
-	private readonly queue: string[] = [];
+	private readonly queue: QueuedNotification[] = [];
 	private lastPlaybackError: string | null = null;
 	private currentPlayback: Playback | undefined;
 	private workerRunning = false;
@@ -90,53 +112,38 @@ export class NotificationController {
 	 * 2. Trim leading/trailing whitespace.
 	 * 3. Reject empty text after trim.
 	 * 4. Reject text exceeding 500 Unicode code points.
-	 * 5. Reject when waiting queue is at capacity (3).
+	 * 5. Apply capacity after prospective milestone supersession (3 waiting).
 	 */
-	enqueue(text: string): EnqueueResult {
+	enqueue(text: string, purpose: NotificationPurpose, task: number): EnqueueResult {
 		if (!this.enabled) {
 			return { accepted: false, message: DISABLED_MESSAGE };
 		}
 
-		// Check before trimming so boundary control characters cannot disappear.
-		if (/\p{Cc}/u.test(text)) {
-			return {
-				accepted: false,
-				message:
-					"Notification text contains a Unicode Cc control character (e.g. newline, tab). Remove control characters before calling.",
-			};
-		}
+		const textValidation = validateNotificationText(text);
+		if (!textValidation.accepted) return textValidation;
+		const trimmed = textValidation.message;
 
-		// Validate the text that will actually be spoken.
-		const trimmed = text.trim();
-
-		// 3. Empty after trim.
-		if (trimmed.length === 0) {
-			return { accepted: false, message: "Notification text is empty after trimming." };
+		const superseded: string[] = [];
+		for (const item of this.queue) {
+			if (item.purpose === "milestone" && (purpose === "milestone" || (purpose === "outcome" && item.task === task))) superseded.push(item.text);
 		}
-
-		let codePoints = 0;
-		for (const _character of trimmed) {
-			if (++codePoints > 500) break;
+		// Reject atomically: obsolete progress is removed only when its replacement is admitted.
+		if (this.queue.length - superseded.length >= QUEUE_LIMIT) {
+			return { accepted: false, message: "Notification queue is full (3 waiting); this notification was not spoken." };
 		}
-		if (codePoints > 500) {
-			return {
-				accepted: false,
-				message: "Notification text exceeds the 500 code-point limit after trimming.",
-			};
+		if (superseded.length > 0) {
+			for (let index = this.queue.length - 1; index >= 0; index--) {
+				const item = this.queue[index];
+				if (item.purpose === "milestone" && (purpose === "milestone" || (purpose === "outcome" && item.task === task))) this.queue.splice(index, 1);
+			}
 		}
-
-		// 5. Capacity: the waiting queue excludes active playback.
-		if (this.queue.length >= QUEUE_LIMIT) {
-			return {
-				accepted: false,
-				message: "Notification queue is full (3 waiting); this notification was not spoken.",
-			};
+		let index = this.queue.length;
+		if (purpose === "attention") {
+			index = 0;
+			while (index < this.queue.length && this.queue[index].purpose === "attention") index++;
 		}
-
-		this.queue.push(trimmed);
-		// Snapshot taken after push; position and depth are both equal to
-		// queue.length because this item was appended to the end.
-		const position = this.queue.length;
+		this.queue.splice(index, 0, { text: trimmed, purpose, task });
+		const position = index + 1;
 		const depth = this.queue.length;
 
 		// Start the worker via microtask so a rapid burst of enqueue() calls fills
@@ -147,9 +154,10 @@ export class NotificationController {
 
 		return {
 			accepted: true,
-			message: `Queued at waiting position ${position} of ${depth}.`,
+			message: `Queued at waiting position ${position} of ${depth}.${superseded.length > 0 ? ` Superseded ${superseded.length} waiting milestone(s); they will not play.` : ""}`,
 			position,
 			depth,
+			...(superseded.length > 0 ? { superseded } : {})
 		};
 	}
 
@@ -230,7 +238,7 @@ export class NotificationController {
 		this.workerRunning = true;
 
 		while (this.queue.length > 0) {
-			const text = this.queue.shift()!;
+			const { text } = this.queue.shift()!;
 
 			let playback: Playback;
 			try {
