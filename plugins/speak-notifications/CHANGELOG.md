@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.5.0
+
+- Replace checkpoint actions, identifiers, boundary matching, silent decisions, recovery, and unresolved status with `text` and `purpose` calls.
+- Keep agents responsible for notification wording and trigger points. The plugin does not classify work, read transcripts, supply fixed speech, prompt on a timer, wake the agent, intercept calls, block user actions, or add model turns.
+- Add task-scoped, bounded whitespace-normalized text suppression. Suppressed calls return a non-error result that says not to retry.
+- Limit accepted milestone speech to one per five minutes after any accepted speech. Outcomes and attention requests bypass the limit.
+- Keep FIFO playback, queue capacity, validation, cancellation, and primary-only ownership unchanged.
+
+This `0.x` minor release intentionally changes the incompatible tool contract.
+
 ## 0.4.1
 
 - Preserve blocked attention targets when a nested device transport completes, so unchanged retries use one recovery and can be released.

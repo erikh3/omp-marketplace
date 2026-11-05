@@ -1,6 +1,6 @@
 {
 	"name": "speak-notifications",
-	"version": "0.4.1",
+	"version": "0.5.0",
 	"description": "Deliberate session-local speech notifications for the primary OMP agent.",
 	"private": true,
 	"type": "module",
