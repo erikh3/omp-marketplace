@@ -221,6 +221,52 @@ describe("registered speak_notification tool", () => {
 		await h.disable();
 	});
 
+	test("plays attention before queued outcomes without interrupting active speech", async () => {
+		nowSpy.mockReturnValue(now = 0);
+		const baseline = playbacks.length;
+		const h = harness();
+		try {
+			await h.start();
+			await h.enable();
+			await h.execute({ purpose: "outcome", text: "Active speech." });
+			await settlePlayback();
+			await h.execute({ purpose: "outcome", text: "Waiting result." });
+			const attention = await h.execute({ purpose: "attention", text: "Review the migration." });
+			expect(attention.details).toMatchObject({ accepted: true, position: 1, depth: 2 });
+			expect(playbacks.slice(baseline).map(playback => playback.text)).toEqual(["Active speech."]);
+			await finishAllPlaybacks(baseline);
+			expect(playbacks.slice(baseline).map(playback => playback.text)).toEqual(["Active speech.", "Review the migration.", "Waiting result."]);
+		} finally { await h.disable(); }
+	});
+
+	test("supersedes waiting milestones but keeps progress from another task on outcome", async () => {
+		nowSpy.mockReturnValue(now = 0);
+		const baseline = playbacks.length;
+		const h = harness();
+		try {
+			await h.start();
+			await h.enable();
+			h.newPrompt();
+			await h.execute({ purpose: "outcome", text: "Active speech." });
+			await settlePlayback();
+			nowSpy.mockReturnValue(now = 300_000);
+			await h.execute({ purpose: "milestone", text: "Old progress." });
+			nowSpy.mockReturnValue(now = 600_000);
+			const latest = await h.execute({ purpose: "milestone", text: "Latest progress." });
+			expect(latest.details).toMatchObject({ accepted: true, superseded: ["Old progress."] });
+			h.newPrompt();
+			const unrelated = await h.execute({ purpose: "outcome", text: "Another task finished." });
+			expect(unrelated.details).not.toHaveProperty("superseded");
+			nowSpy.mockReturnValue(now = 900_000);
+			const current = await h.execute({ purpose: "milestone", text: "Current task progress." });
+			expect(current.details).toMatchObject({ accepted: true, superseded: ["Latest progress."] });
+			const outcome = await h.execute({ purpose: "outcome", text: "Current task finished." });
+			expect(outcome.details).toMatchObject({ accepted: true, superseded: ["Current task progress."] });
+			await finishAllPlaybacks(baseline);
+			expect(playbacks.slice(baseline).map(playback => playback.text)).toEqual(["Active speech.", "Another task finished.", "Current task finished."]);
+		} finally { await h.disable(); }
+	});
+
 	test("resets duplicate and frequency gates when disabled, enabled, or resumed", async () => {
 		nowSpy.mockReturnValue(now = 0);
 		const h = harness();

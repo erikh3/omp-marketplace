@@ -2,7 +2,7 @@
 
 ## Status
 
-Superseded by the `0.5.0` design in the [Speak notifications plugin specification](speak-notifications-specification.md). The earlier checkpoint, boundary, recovery, unresolved-status, and timer-prompt design is not the current contract.
+Superseded by the `0.6.0` design in the [Speak notifications plugin specification](speak-notifications-specification.md). The earlier checkpoint, boundary, recovery, unresolved-status, and timer-prompt design is not the current contract.
 
 ## Why the design changed
 
@@ -21,8 +21,10 @@ The design borrows host-owned suppression and lifecycle separation from [Peon Pi
 - The primary agent may announce a meaningful milestone with new important information.
 - Accepted milestones are spaced at least five minutes from any accepted speech. Outcomes and attention requests bypass that gate.
 - The plugin suppresses repeated trimmed, whitespace-normalized text within a user task. It stores at most 32 texts. New tasks clear text memory. Disable and resume reset all notification memory.
-- A suppression result is non-error and says not to retry. Invalid text and queue rejection remain errors and do not consume suppression or spacing.
+- A suppression result is non-error and says not to retry. Invalid text, frequency suppression, duplicate suppression, and queue rejection leave waiting messages unchanged and do not consume suppression or spacing.
+- Waiting attention messages have priority, with FIFO order within that priority. Ordinary messages remain FIFO. No queued item interrupts active speech.
+- A new milestone supersedes every waiting milestone across tasks. A new outcome supersedes waiting milestones for the same internal task only. The acceptance result reports the trimmed texts that will not play. Supersession never affects active playback.
+- Capacity is three waiting items and is evaluated after prospective supersession. Rejection is atomic if the prospective queue remains full.
 - The plugin has no timer prompts, wakeups, transcript or final-answer reading, fixed speech, classifier, IDs, boundaries, silent decisions, interception, blocking, retries, recovery, or unresolved status.
-- FIFO playback, local TTS selection, queue capacity, process ownership, and cancellation remain unchanged.
 
 The specification is authoritative for implementation and acceptance criteria.

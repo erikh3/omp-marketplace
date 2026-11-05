@@ -44,9 +44,9 @@ speak_notification({
 
 The primary agent writes every spoken text. The plugin does not supply fixed phrases, derive speech from a transcript or final answer, or use a classifier or narrator.
 
-For schema-valid calls, first check enabled state. While disabled, return the disabled result without text validation or queueing. While enabled, reject Unicode `Cc` control characters in original text, then blank or trimmed text over 500 Unicode code points. The queue rejects excess messages. Validation and queue rejection are errors. They do not consume deduplication or milestone spacing.
+For schema-valid calls, first check enabled state. While disabled, return the disabled result without text validation or queueing. While enabled, reject Unicode `Cc` control characters in original text, then blank or trimmed text over 500 Unicode code points. Duplicate and five-minute milestone suppression happen before queue changes. Validation, duplicate suppression, frequency suppression, and capacity rejection leave every waiting item unchanged. They do not consume deduplication or milestone spacing.
 
-On queue acceptance, return immediately with waiting-only position and depth. This confirms queue acceptance, not successful synthesis or playback. The tool must not wait for playback. The agent must not invoke raw `omp say` or Bash for speech.
+On queue acceptance, return immediately with waiting-only position and depth snapshots. The result may include `superseded`, the exact trimmed texts removed from waiting playback. A superseded item will not play and never counts as playback success. Queue acceptance does not confirm successful synthesis or playback. The tool must not wait for playback. The agent must not invoke raw `omp say` or Bash for speech.
 
 Within a user task, normalize text by trimming and normalizing whitespace. Remember at most 32 normalized texts. If the same text was already accepted, return a non-error result with `accepted: false`, `suppressed: true`, and text that says not to retry. The result does not queue speech. Starting a new user task clears this text memory. Disabling notifications and resuming a session reset all notification memory.
 
@@ -73,7 +73,7 @@ The plugin owns session-local state:
 ```text
 enabled: boolean
 activePlayback: boolean
-queue: string[]
+queue: Array<{ text: string, purpose: "outcome" | "attention" | "milestone", task: number }>
 lastPlaybackError: string | null
 ```
 
@@ -88,12 +88,13 @@ The live-state developer note overrides restored notices for the next primary re
 
 ## Queue and playback
 
-- One FIFO worker owns playback.
-- It starts the next item only after the active process exits.
-- It starts `omp say` asynchronously with the resolved local `--model`, `--voice`, and `--speed` values.
-- On process failure, discard the failed item, store the error in `lastPlaybackError`, show a visible error, and continue with the next item. A successful playback clears the retained error.
-- `/speak off` clears waiting items and stops owned synthesis and playback, including child playback processes. Explicit termination is not a playback failure.
-- On session shutdown, clear the queue, stop owned processes, and release worker resources.
+- One serial worker owns playback. It starts the next item only after the active process exits.
+- Waiting attention messages have priority. A new attention message inserts after existing waiting attention messages and before all ordinary waiting messages. Attention messages retain FIFO order within their priority. Outcome and milestone messages retain FIFO order with one another.
+- Active playback is never reordered, removed, or interrupted by a new notification. Every active phrase runs to process completion unless `/speak off` cancels it.
+- Before capacity is evaluated, a new milestone removes every waiting milestone across all tasks. A new outcome removes waiting milestones for the same internal task only. An attention message does not supersede waiting items.
+- The limit remains three waiting items, excluding active playback. Compute prospective supersession first, then reject atomically when adding the new item would still exceed that limit. A rejected call removes no waiting item.
+- Start `omp say` asynchronously with the resolved local `--model`, `--voice`, and `--speed` values. On process failure, discard the failed item, store the error in `lastPlaybackError`, show a visible error, and continue with the next item. A successful playback clears the retained error.
+- `/speak off` clears waiting items and stops owned synthesis and playback, including child playback processes. Explicit termination is not a playback failure. On session shutdown, clear the queue, stop owned processes, and release worker resources.
 
 First playback can download the local model. `/speak on` does not guarantee that synthesis is ready. Show synthesis and playback errors immediately and retain the latest error in `/speak status`.
 
@@ -114,12 +115,14 @@ First playback can download the local model. `/speak on` does not guarantee that
 4. The tool schema contains only `text` and `purpose`, where purpose is `outcome`, `attention`, or `milestone`.
 5. While disabled, schema-valid calls produce no audio, return the disabled result without text validation, and do not queue anything.
 6. `/speak off` clears waiting items, stops owned synthesis and playback processes, and appends the disabled notice. Cancellation works before audio begins and during playback without recording a playback error.
-7. With working local TTS and notifications enabled, three rapid accepted calls play in request order without overlap. Each call returns its enqueue acknowledgement without waiting for synthesis or playback.
-8. The fixed capacity of three waiting messages excludes current playback. It rejects only the new excess notification and reports the rejection.
-9. The plugin rejects blank, over-limit, and control-character text while enabled. Rejected calls do not consume text suppression or milestone spacing.
-10. Within a user task, accepted normalized text is suppressed on a repeated call. The suppressed result is not an error, says not to retry, and queues nothing. The plugin remembers at most 32 texts and clears them for a new user task.
-11. An accepted milestone less than five minutes after any accepted speech is suppressed without error or queueing. Accepted outcomes and attention requests bypass that gate. Disable and resume reset notification memory.
-12. The plugin uses no timer prompt, autonomous model turn, transcript reader, final-answer reader, classifier, fixed spoken text, ID, boundary, silent-decision path, call interception, blocking, recovery, or unresolved status.
-13. Unit tests cover commands, disabled behavior, FIFO ordering, capacity, validation, duplicate suppression, milestone spacing, playback failure, explicit playback termination, and shutdown cleanup.
-14. Runtime verification links the plugin, restarts OMP, and exercises disabled, enabled, queued, duplicate suppression, milestone spacing, and off-during-playback flows.
-15. Playback uses local TTS and explicitly passes a model selected from the parent session's speech-role chain with parent `tts.localVoice` and `tts.localSpeed`. It does not read or recreate `tts.localModel`.
+7. With working local TTS and notifications enabled, accepted calls play serially without overlap. An active phrase keeps its place until it exits. Each call returns its enqueue acknowledgement without waiting for synthesis or playback.
+8. Attention messages play before waiting ordinary messages, preserve FIFO order within attention priority, and never interrupt active playback. Outcomes and milestones preserve FIFO order among ordinary waiting messages.
+9. The fixed capacity of three waiting messages excludes current playback. The plugin evaluates capacity after prospective milestone supersession and rejects atomically when still full.
+10. A new milestone supersedes all waiting milestones across tasks. A new outcome supersedes only waiting milestones for its own internal task. Active playback is never superseded. The acceptance result returns the exact trimmed superseded texts and waiting position and depth snapshots. Superseded items do not play and are not recorded as playback success.
+11. Blank, over-limit, control-character, duplicate, frequency, and capacity rejections leave all waiting messages unchanged. Rejected calls do not consume text suppression or milestone spacing.
+12. Within a user task, accepted normalized text is suppressed on a repeated call. The suppressed result is not an error, says not to retry, and queues nothing. The plugin remembers at most 32 texts and clears them for a new user task.
+13. An accepted milestone less than five minutes after any accepted speech is suppressed without error or queueing. Accepted outcomes and attention requests bypass that gate. Disable and resume reset notification memory.
+14. The plugin uses no timer prompt, autonomous model turn, transcript reader, final-answer reader, classifier, fixed spoken text, ID, boundary, silent-decision path, call interception, blocking, recovery, or unresolved status.
+15. Unit tests cover commands, disabled behavior, serial playback, attention priority, cross-task and same-task milestone supersession, capacity after prospective supersession, rejection atomicity, validation, duplicate suppression, milestone spacing, playback failure, explicit playback termination, and shutdown cleanup.
+16. Runtime verification links the plugin, restarts OMP, and exercises disabled, enabled, attention priority, milestone supersession, outcome task boundaries, duplicate suppression, milestone spacing, and off-during-playback flows.
+17. Playback uses local TTS and explicitly passes a model selected from the parent session's speech-role chain with parent `tts.localVoice` and `tts.localSpeed`. It does not read or recreate `tts.localModel`.

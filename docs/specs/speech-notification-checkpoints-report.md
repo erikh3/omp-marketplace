@@ -2,48 +2,48 @@
 
 ## Historical evidence only
 
-The earlier checkpoint prototype is historical evidence only. The current `0.5.0` implementation and its verification are recorded below. Neither smoke is release approval or a guarantee of correct model significance judgment.
+The earlier checkpoint prototype and the `0.5.0` smoke are historical evidence only. They do not verify the current `0.6.0` queue-priority and milestone-supersession behavior. Neither smoke is release approval or a guarantee of correct model significance judgment.
 
 The prototype used checkpoint IDs, attention boundaries, silent decisions, recovery, unresolved status, and timer assessments. Those mechanisms are superseded. See the [current specification](speak-notifications-specification.md) and the [superseded checkpoint plan](speech-notification-checkpoints-plan.md).
 
-## Previous real-model smoke
+## Earlier smoke evidence
 
-On 2026-11-04, a real-model smoke exercised unshipped `0.4.1` source directly without installing or linking it. It used OMP 18.16.0 with `hai-anthropic/anthropic--claude-4.6-sonnet`.
+The 0.4.1 checkpoint smoke on 2026-11-04 and 0.5.0 simplified-tool smoke on 2026-11-05 applied only to those versions. The simplified smoke verified original agent-authored outcome text, routine lookup silence, frequency and duplicate suppression, and disabled behavior. A material user question still omitted speech. Neither version guaranteed correct significance judgment or human audibility.
 
-The smoke observed accepted speech decisions, silent decisions, queue behavior, and no notification attempts after speech was disabled. It also observed missed substantial notifications, unnecessary routine notifications, invalid targeting, and metadata-related output-quality failures. It did not establish reliable significance judgment, human audibility, or completed playback for each accepted queue item.
+## 0.6.0 feature verification
 
-Previous deterministic results and source fingerprints applied only to that checkpoint prototype. They must not be treated as results for the current design.
+The current source passed 66 tests, typecheck, and marketplace validation. Controlled-playback tests covered attention priority, FIFO within priority, active playback protection, full-queue milestone replacement, task isolation, atomic rejection, and absence of playback callbacks for superseded items. Registered-tool tests exercised the same behavior through the unchanged text-and-purpose schema and internal task counter.
 
-## Current verification
+The primary agent drove an OMP 18.16.0 Sonnet delivery-only smoke in Herdr tab `w1R:tB`, pane `w1R:pR`. The production plugin was loaded explicitly without installation. A throwaway observer accelerated the admission clock so multiple milestones could be accepted without five-minute sleeps. Actual local TTS and playback were unchanged. A PATH-scoped observer logged the start and exit of real OMP speech subprocesses. No global settings or installations changed.
 
-The current implementation passed `bun test --isolate` with 57 passing tests, `bun run typecheck`, and marketplace validation. Deterministic regressions cover the inclusive five-minute milestone boundary, outcome and attention bypass, normalized duplicate suppression, rejection without consuming gates, new-task state, disable/resume reset, and retained local playback ownership.
+The successful session was `01a1ad05-326e-709e-9950-7c8c23e2d8de`. Speech was enabled before its task. Every message was authored by the model. The first long message kept playback active while a second outcome, a milestone, and attention were queued.
 
-The primary agent drove a fresh OMP 18.16.0 Sonnet session on 2026-11-05 using the explicit worktree extension without installing it. Herdr tab `w1R:tA`, pane `w1R:pQ`, agent `speech-simple-smoke`. Speech was enabled before the first task.
-
-| Scenario | Observed result |
+| Observation | Evidence |
 | --- | --- |
-| Natural implementation task | Built and ran the summarizer, gave correct totals, and queued one original agent-authored outcome sentence |
-| Routine route lookup | Returned orders and count 5 with no speech |
-| Material release question | Question opened immediately without recovery or interference, but the model omitted attention speech |
-| Explicit delivery-only frequency test | Early milestones were suppressed; an outcome bypassed spacing; no suppressed call was retried |
-| Explicit delivery-only duplicate test | First outcome queued; identical attention text was suppressed; a different attention sentence queued immediately |
-| Speech status | Playback idle, queue empty, local Kokoro voice and speed displayed, no retained error |
-| Speech off | Summarizer ran and returned unchanged totals without speech |
+| Active speech uninterrupted | First speech ran from 18:44:16.436 to 18:44:49.087 UTC and exited with code 0 |
+| Attention played next | Attention started at 18:44:49.129 UTC, before the earlier waiting outcome, and exited with code 0 |
+| Ordinary outcome retained | Earlier waiting outcome started at 18:44:56.803 UTC and exited with code 0 |
+| Latest progress replaced prior waiting progress | The next task's first milestone reported the previous task's waiting milestone as superseded; a second milestone then superseded the first |
+| Final outcome cleared its task's queued progress | The final outcome reported the second milestone as superseded and was the next ordinary item to play |
+| Removed progress never played | No speech process start existed for any of the three superseded milestone texts |
+| Final queue drained | Final outcome exited with code 0 at 18:45:16.519 UTC; `/speak status` reported idle playback, waiting 0/3, and no retained error |
 
-All spoken messages were supplied by the model, not by host templates. The delivery-only tests requested tool calls explicitly and therefore prove runtime gates, not autonomous trigger selection. The natural implementation and quick-lookup prompts did not request speech. No fake notification decisions, question blocks, timer requests, or notification-only recovery turns occurred. The model still omitted the material attention notification; this is a best-effort tool, not enforced audio compliance. Its written incident conclusion overclaimed an outage from the small fixture; speech text itself reported the observed counts.
+An earlier observer launch failed because its restricted PATH lacked Bun. The driver repaired the throwaway observer and started a fresh session. That failed run is not counted as playback proof. In the successful run, an over-500-code-point message was rejected; the model shortened it before queue acceptance. Model-authored fixture messages contained unsupported success claims, so their prose is not evidence of work completion. These explicit delivery tests prove ordering and supersession, not autonomous notification judgment or human audibility.
 
 Local evidence, which may expire:
 
 ```text
-/tmp/speech-simple-smoke-20261105/events.jsonl
-/tmp/speech-simple-smoke-20261105/session/2026-11-05T09-55-01-623Z_01a1ab22-1b77-721f-94cb-673342cefa59.jsonl
+/tmp/speech-queue-smoke-20261105/events.jsonl
+/tmp/speech-queue-smoke-20261105/playback.jsonl
+/tmp/speech-queue-smoke-20261105/session/2026-11-05T18-42-41-390Z_01a1ad05-326e-709e-9950-7c8c23e2d8de.jsonl
 ```
 
-The loaded source was fingerprinted before launch:
+Loaded production source fingerprints:
 
 ```text
-e63b4cc48586006717ad770c762e49c4200028638947c60a3c81344e8096985e src/index.ts
-c974867a4dcd7f0050792efa0ef4d6835a882f51cddb0005e8a1d4a1ad1d57a3 src/guidance.ts
+5933ef953468fe99270590f8f19a609ff4d6a35a255702751f5d5741b945f7ca src/controller.ts
+ed3c813943844d0801c1722231ff3af4bc18e4d56116916489381dafcc387f8e src/index.ts
+1cebe1a27a70cf096a92f29181805f0738df35a3082b99c228cd99f2c7d8aa83 src/guidance.ts
 ```
 
-The smoke agent was stopped after speech was disabled; its tab history remains available. Human audibility was not verified. Per-item successful playback was not claimed from queue acknowledgement. No global installation, automatic assistant speech, provider configuration, or speech-to-text setting changed.
+The smoke runtime was stopped after its speech queue drained. Tab history is retained. The five-minute admission gate was exercised with deterministic time in tests and an accelerated clock in this smoke. Cross-task outcome preservation was verified deterministically rather than inferred from the final task's supersession.

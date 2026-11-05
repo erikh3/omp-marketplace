@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.6.0
+
+- Prioritize waiting attention messages while preserving FIFO order within the attention and ordinary queues. Active playback remains uninterrupted.
+- Coalesce waiting milestones across the session. An outcome removes waiting milestones for its own task.
+- Return superseded waiting texts with queue-position snapshots. Rejections leave the waiting queue unchanged.
+
 ## 0.5.0
 
 - Replace checkpoint actions, identifiers, boundary matching, silent decisions, recovery, and unresolved status with `text` and `purpose` calls.

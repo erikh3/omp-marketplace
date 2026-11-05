@@ -33,9 +33,11 @@ Accepted `milestone` speech is limited to one per five minutes measured from any
 
 ## Playback and limits
 
-A single FIFO worker runs `omp say` without overlapping plugin playback. It passes the parent session's resolved local speech model, voice, and speed explicitly. Cloud TTS and OMP automatic vocalization are unchanged.
+A single serial worker runs `omp say` without overlapping plugin playback. It passes the parent session's resolved local speech model, voice, and speed explicitly. Cloud TTS and OMP automatic vocalization are unchanged.
 
-Three messages may wait, excluding active playback. A successful tool call returns immediately with waiting-only position and depth, not a playback-success claim. Excess messages are rejected. Enabled calls reject blank text, Unicode control characters, and trimmed text over 500 Unicode code points.
+Waiting `attention` messages have priority over waiting `outcome` and `milestone` messages. Attention messages keep FIFO order among themselves and insert after existing waiting attention messages. Ordinary waiting messages keep FIFO order. Nothing interrupts the active phrase.
+
+There can be three waiting messages, excluding active playback. Before capacity is checked, a new `milestone` replaces every waiting milestone in the session. A new `outcome` removes waiting milestones for its own task only. Active playback never changes. The result reports a waiting-only position and depth snapshot and, when applicable, the exact trimmed messages superseded from the waiting queue. Superseded messages will not play and do not count as playback success. If prospective supersession still leaves three waiting messages, the call is rejected atomically and removes nothing. Invalid text, capacity, five-minute frequency, and duplicate rejections leave all queued speech unchanged.
 
 First playback may download the local model. `/speak on` does not guarantee synthesis readiness. Failures are shown immediately and retained in `/speak status` until successful playback clears them. Disabling notifications does not clear a prior error.
 

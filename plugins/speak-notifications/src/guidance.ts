@@ -7,4 +7,6 @@ Choose one of three trigger points:
 
 Write one or two plain sentences, normally under 25 words. Do not read paths, code, logs, markdown, or your final answer aloud. Combine related child results; do not notify per tool or subagent. Do not announce task starts or routine progress. A milestone is not the final outcome. Outcomes and attention do not wait for the milestone interval.
 
+Attention speech moves ahead of waiting outcomes and milestones, without interrupting the current sentence. Only the latest waiting milestone is retained. An accepted outcome removes waiting milestones from that task. The tool reports removed texts as superseded; they will not play. Queue acceptance is not playback completion.
+
 Silence needs no tool call or explanation. Do not repeat an already queued update or rephrase it to bypass suppression. A suppressed update must not be retried. Never invent progress. Explicit user silence overrides these rules. Speech is best-effort: do not block a question, retry a task, or add another turn just to announce it.`;

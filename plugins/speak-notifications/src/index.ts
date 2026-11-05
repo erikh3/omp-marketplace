@@ -13,6 +13,7 @@ export default function speakNotifications(pi: ExtensionAPI) {
 	let context: ExtensionContext;
 	let sessionSettings: Settings;
 	let lastAcceptedAt: number | undefined;
+	let task = 0;
 	const recentTexts = new Set<string>();
 	const parameters = pi.zod.object({
 		text: pi.zod.string(),
@@ -61,6 +62,7 @@ export default function speakNotifications(pi: ExtensionAPI) {
 	async function initialize(ctx: ExtensionContext) {
 		if (ctx.agent.kind !== "main") return;
 		resetFrequency();
+		task = 0;
 		await controller.disable();
 		await controller.reset();
 		context = ctx;
@@ -77,7 +79,7 @@ export default function speakNotifications(pi: ExtensionAPI) {
 			parameters,
 			async execute(_id, params) {
 				if (!controller.status().enabled) {
-					const result = controller.enqueue("");
+					const result = controller.enqueue("", params.purpose, task);
 					return { content: [{ type: "text", text: result.message }], details: result };
 				}
 				const validation = validateNotificationText(params.text);
@@ -90,7 +92,7 @@ export default function speakNotifications(pi: ExtensionAPI) {
 						? "Progress speech is limited to once per five minutes. Continue the task; do not retry this update."
 						: undefined;
 				if (suppression) return { content: [{ type: "text", text: suppression }], details: { accepted: false, suppressed: true, message: suppression } };
-				const result = controller.enqueue(validation.message);
+				const result = controller.enqueue(validation.message, params.purpose, task);
 				if (result.accepted) {
 					lastAcceptedAt = now;
 					recentTexts.add(key);
@@ -112,7 +114,10 @@ export default function speakNotifications(pi: ExtensionAPI) {
 		await controller.shutdown();
 	});
 	pi.on("before_agent_start", (event, ctx) => {
-		if (ctx.agent.kind === "main" && event.reason === "prompt") recentTexts.clear();
+		if (ctx.agent.kind === "main" && event.reason === "prompt") {
+			task++;
+			recentTexts.clear();
+		}
 	});
 	pi.on("context", (event, ctx) => {
 		if (ctx.agent.kind !== "main") return;
