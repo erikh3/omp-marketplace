@@ -1,0 +1,8 @@
+{
+  "servers": {
+    "typescript-native": {
+      "command": "./plugins/speak-notifications/node_modules/.bin/tsc",
+      "rootMarkers": ["plugins/speak-notifications/package.json"]
+    }
+  }
+}

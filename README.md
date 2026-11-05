@@ -4,6 +4,12 @@ Personal [oh-my-pi](https://omp.sh) plugin marketplace.
 
 Catalog: [`.omp-plugin/marketplace.json`](.omp-plugin/marketplace.json).
 
+## OMP language servers
+
+Start OMP from this repository root. [`.omp/lsp.json`](.omp/lsp.json) enables the native TypeScript server using the nested `speak-notifications` package manifest and its local TypeScript 7 compiler. Install that plugin's development dependencies before using LSP; the configuration does not install them.
+
+After changing the configuration in a running session, ask OMP to run the LSP tool with `action: "reload", file: "*"`. Added workspace directories do not participate in server discovery; each checkout needs the configuration in its own session root.
+
 ## Add the marketplace
 
 From GitHub:
