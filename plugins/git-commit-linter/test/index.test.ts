@@ -26,6 +26,22 @@ import type {
 } from "../src/types.ts";
 import type { LintRuleOutcome } from "@commitlint/types";
 
+interface CommitCandidateCase {
+	readonly name: string;
+	readonly expected: boolean;
+	readonly command: string;
+}
+
+const commitCandidateCases = (await Bun.file(`${import.meta.dir}/commit-candidates.csv`).text())
+	.trim()
+	.split("\n")
+	.slice(1)
+	.map((line): CommitCandidateCase => {
+		const [name, expected, command] = line.split(",", 3);
+		if (name === undefined || expected === undefined || command === undefined) throw new Error(`Invalid candidate case: ${line}`);
+		return { name, expected: expected === "true", command: command.replaceAll("\\n", "\n") };
+	});
+
 // ---------------------------------------------------------------------------
 // Shared invocation fixtures
 // ---------------------------------------------------------------------------
@@ -379,34 +395,14 @@ describe("non-Bash tool_call events", () => {
 	});
 });
 
-describe("no-commit bash calls", () => {
-	it("bypasses parsing when the command cannot contain git commit", async () => {
-		const { handlers, ctx } = buildExtension();
-		const result = await handlers.tool_call!(
-			makeToolCallEvent("id-1", "find /tmp/erikh-test1-onprem -type f -exec unlink {} +"),
-			ctx,
-		);
-		expect(result).toBeUndefined();
-		expect(analyzeCallCount).toBe(0);
-	});
-
-	it("parses commands that may contain git commit", async () => {
-		const { handlers, ctx } = buildExtension();
-		await handlers.tool_call!(makeToolCallEvent("id-1", "git commit -m 'feat: add thing'"), ctx);
-		expect(analyzeCallCount).toBe(1);
-	});
-
-	it("parses a dynamic executable followed by commit", async () => {
-		const { handlers, ctx } = buildExtension();
-		await handlers.tool_call!(makeToolCallEvent("id-1", "$GIT commit -m 'feat: add thing'"), ctx);
-		expect(analyzeCallCount).toBe(1);
-	});
-
-	it("bypasses words in a non-executable command", async () => {
-		const { handlers, ctx } = buildExtension();
-		await handlers.tool_call!(makeToolCallEvent("id-1", "echo git commit"), ctx);
-		expect(analyzeCallCount).toBe(0);
-	});
+describe("commit-candidate dispatch", () => {
+	for (const { name, expected, command } of commitCandidateCases) {
+		it(name, async () => {
+			const { handlers, ctx } = buildExtension();
+			await handlers.tool_call!(makeToolCallEvent("id-1", command), ctx);
+			expect(analyzeCallCount).toBe(expected ? 1 : 0);
+		});
+	}
 });
 
 // ---------------------------------------------------------------------------

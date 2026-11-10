@@ -1,0 +1,39 @@
+case,expected,command
+literal commit,true,git commit -m 'feat: add thing'
+git global option,true,git -C /repo commit -m 'feat: add thing'
+leading assignment,true,GIT_AUTHOR_NAME=Bot git commit -m 'feat: add thing'
+env assignment,true,env GIT_AUTHOR_NAME=Bot git commit -m 'feat: add thing'
+env clear,true,env -i git commit -m 'feat: add thing'
+env unset,true,env -u GIT_DIR git commit -m 'feat: add thing'
+dynamic executable,true,$GIT commit -m 'feat: add thing'
+dynamic executable braced,true,${GIT} commit -m 'feat: add thing'
+backtick executable,true,`command -v git` commit -m 'feat: add thing'
+double quoted dynamic executable,true,"$GIT" commit -m 'feat: add thing'
+compound before commit,true,echo ready && git commit -m 'feat: add thing'
+compound after commit,true,git commit -m 'feat: add thing' && git status
+newline before commit,true,echo ready\ngit commit -m 'feat: add thing'
+pipe to commit,true,printf x | git commit -F -
+indirect bash,true,bash -c "git commit -m 'feat: add thing'"
+indirect eval,true,eval "git commit -m 'feat: add thing'"
+indirect xargs,true,printf x | xargs git commit -m 'feat: add thing'
+find exec commit,true,find . -exec git commit -m 'feat: add thing' {} +
+unrelated find,false,find /tmp/test -type f -exec unlink {} +
+echo words,false,echo git commit
+printf words,false,printf '%s\n' 'git commit'
+comment only,false,# git commit
+comment after command,false,echo safe # git commit
+single quoted words,false,echo 'git commit'
+double quoted words,false,echo "git commit"
+escaped words,false,echo git\ commit
+git status,false,git status
+git alias,false,git ci -m 'feat: add thing'
+git config false positive,false,git config commit.template template.txt
+other commit command,false,hg commit -m 'feat: add thing'
+commit executable,false,commit -m 'feat: add thing'
+non-git variable,false,echo $GIT commit
+subshell unrelated,false,(echo git commit)
+brace unrelated,false,{ echo git commit; }
+process substitution unrelated,false,diff <(echo git) <(echo commit)
+quoted semicolon,false,echo 'git; commit'
+quoted pipe,false,echo "git | commit"
+comment then commit,true,# comment\ngit commit -m 'feat: add thing'

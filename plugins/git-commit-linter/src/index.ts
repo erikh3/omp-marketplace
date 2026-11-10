@@ -101,7 +101,7 @@ function containsCommitCandidate(command: string): boolean {
 		const executable = tokens[executableIndex];
 		const argumentsAfterExecutable = tokens.slice(executableIndex + 1);
 		const literalCommit = argumentsAfterExecutable.some((token) => !token.hasExpansion && token.value === "commit");
-		const wrappedCommit = argumentsAfterExecutable.some((token) => /\bgit\b[\s\S]*\bcommit\b/.test(token.value));
+		const wrappedCommit = argumentsAfterExecutable.some((token, index) => /\bgit\b[\s\S]*\bcommit\b/.test(token.value) || (token.value === "git" && argumentsAfterExecutable.slice(index + 1).some((following) => following.value === "commit")));
 		tokens = [];
 		return (executable?.value === "git" || executable?.hasExpansion === true) && literalCommit
 			|| (["bash", "sh", "zsh", "dash", "eval", "xargs", "find"].includes(executable?.value ?? "") && wrappedCommit);
