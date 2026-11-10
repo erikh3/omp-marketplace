@@ -26,6 +26,22 @@ import type {
 } from "../src/types.ts";
 import type { LintRuleOutcome } from "@commitlint/types";
 
+interface CommitCandidateCase {
+	readonly name: string;
+	readonly expected: boolean;
+	readonly command: string;
+}
+
+const commitCandidateCases = (await Bun.file(`${import.meta.dir}/commit-candidates.csv`).text())
+	.trim()
+	.split("\n")
+	.slice(1)
+	.map((line): CommitCandidateCase => {
+		const [name, expected, command] = line.split(",", 3);
+		if (name === undefined || expected === undefined || command === undefined) throw new Error(`Invalid candidate case: ${line}`);
+		return { name, expected: expected === "true", command: command.replaceAll("\\n", "\n") };
+	});
+
 // ---------------------------------------------------------------------------
 // Shared invocation fixtures
 // ---------------------------------------------------------------------------
@@ -162,6 +178,7 @@ function makeCtx(cwd: string = "/workspace"): CtxHarness {
 // can change return values without re-evaluating modules.
 
 let mockAnalyzeResult: ShellAnalysis = { kind: "no-commit" };
+let analyzeCallCount = 0;
 let mockResolveResult: ResolvedCommit = {
 	resolution: "lint",
 	invocation: makeInvocation(),
@@ -198,7 +215,10 @@ let mockLintOverride: ((callIndex: number) => CommitLintResult) | undefined;
 let mockLintCallIndex = 0;
 
 mock.module("../src/commit-command.ts", () => ({
-	analyzeCommand: (_cmd: string, _cwd: string) => mockAnalyzeResult,
+	analyzeCommand: (_cmd: string, _cwd: string) => {
+		analyzeCallCount++;
+		return mockAnalyzeResult;
+	},
 }));
 mock.module("../src/git-resolver.ts", () => ({
 	resolveCommit: (inv: CommitInvocation) => {
@@ -346,6 +366,7 @@ beforeEach(() => {
 	mockResolveCallIndex = 0;
 	mockLintOverride = undefined;
 	mockLintCallIndex = 0;
+	analyzeCallCount = 0;
 });
 
 afterEach(() => {});
@@ -374,16 +395,14 @@ describe("non-Bash tool_call events", () => {
 	});
 });
 
-describe("no-commit bash calls", () => {
-	it("returns undefined when parser finds no git commit", async () => {
-		mockAnalyzeResult = { kind: "no-commit" };
-		const { handlers, ctx } = buildExtension();
-		const result = await handlers.tool_call!(
-			makeToolCallEvent("id-1", "echo hello"),
-			ctx,
-		);
-		expect(result).toBeUndefined();
-	});
+describe("commit-candidate dispatch", () => {
+	for (const { name, expected, command } of commitCandidateCases) {
+		it(name, async () => {
+			const { handlers, ctx } = buildExtension();
+			await handlers.tool_call!(makeToolCallEvent("id-1", command), ctx);
+			expect(analyzeCallCount).toBe(expected ? 1 : 0);
+		});
+	}
 });
 
 // ---------------------------------------------------------------------------
@@ -1089,7 +1108,7 @@ describe("effective cwd resolution", () => {
 		}));
 
 		const { handlers, ctx } = buildExtension("/workspace-cwd");
-		await handlers.tool_call!(makeToolCallEvent("cwd-1", "echo hello"), ctx);
+		await handlers.tool_call!(makeToolCallEvent("cwd-1", "git commit --amend --no-edit"), ctx);
 
 		expect(capturedCwd).toBe("/workspace-cwd");
 
@@ -1110,7 +1129,7 @@ describe("effective cwd resolution", () => {
 
 		const { handlers, ctx } = buildExtension("/workspace");
 		// Absolute cwd in event — should be passed as-is (resolve("/workspace", "/absolute/path") = "/absolute/path").
-		await handlers.tool_call!(makeToolCallEvent("cwd-2", "echo hello", "/absolute/path"), ctx);
+		await handlers.tool_call!(makeToolCallEvent("cwd-2", "git commit --amend --no-edit", "/absolute/path"), ctx);
 
 		expect(capturedCwd).toBe("/absolute/path");
 
