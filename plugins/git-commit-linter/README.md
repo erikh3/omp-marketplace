@@ -5,9 +5,9 @@ commitlint rules before Bash executes.
 
 ## Scope
 
-This plugin only parses Bash calls that contain both literal `git` and `commit`
-words. All other commands pass through without inspection, including shell forms
-the plugin does not parse.
+This plugin uses deterministic shell-word scanning to identify likely `git commit`
+commands before parsing them. It passes unrelated commands through without
+inspection, including shell forms the plugin does not parse.
 
 It validates only Bash `tool_call` events where the model issues a literal
 `git commit` command. It does not intercept:
@@ -64,11 +64,11 @@ The Bash `cwd` field accepts `~` and `~/...`. In shell commands, unquoted
 word-initial `~` expands to the home directory; quoted and escaped tildes remain
 literal. Relative and repeated Git `-C` options apply in order, exactly once.
 
-## Changes in 0.1.2
+## Changes in 0.1.3
 
-Commands without both `git` and `commit` now bypass shell parsing. This prevents
-unrelated valid commands such as `find -exec unlink {} +` from being blocked by
-unsupported shell syntax.
+Unrelated commands now bypass shell parsing through a deterministic candidate
+scan. This prevents valid commands such as `find -exec unlink {} +` from being
+blocked by unsupported shell syntax.
 
 
 ## Skipped forms (no validation)

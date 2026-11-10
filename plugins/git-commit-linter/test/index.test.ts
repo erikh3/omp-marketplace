@@ -395,6 +395,18 @@ describe("no-commit bash calls", () => {
 		await handlers.tool_call!(makeToolCallEvent("id-1", "git commit -m 'feat: add thing'"), ctx);
 		expect(analyzeCallCount).toBe(1);
 	});
+
+	it("parses a dynamic executable followed by commit", async () => {
+		const { handlers, ctx } = buildExtension();
+		await handlers.tool_call!(makeToolCallEvent("id-1", "$GIT commit -m 'feat: add thing'"), ctx);
+		expect(analyzeCallCount).toBe(1);
+	});
+
+	it("bypasses words in a non-executable command", async () => {
+		const { handlers, ctx } = buildExtension();
+		await handlers.tool_call!(makeToolCallEvent("id-1", "echo git commit"), ctx);
+		expect(analyzeCallCount).toBe(0);
+	});
 });
 
 // ---------------------------------------------------------------------------

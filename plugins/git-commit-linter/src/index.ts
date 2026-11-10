@@ -74,9 +74,91 @@ interface StoredWarning {
 }
 
 // ---------------------------------------------------------------------------
-// Extension factory
+// Commit-candidate scan
 // ---------------------------------------------------------------------------
 
+function containsCommitCandidate(command: string): boolean {
+	type CandidateToken = { readonly value: string; readonly hasExpansion: boolean };
+	let tokens: CandidateToken[] = [];
+	let value = "";
+	let hasExpansion = false;
+	let quote: "'" | '"' | undefined;
+	let escaped = false;
+	let comment = false;
+
+	const inspectCommand = (): boolean => {
+		if (value.length > 0) tokens.push({ value, hasExpansion });
+		value = "";
+		hasExpansion = false;
+		let executableIndex = 0;
+		while (/^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[executableIndex]?.value ?? "")) executableIndex++;
+		if (tokens[executableIndex]?.value === "env") {
+			executableIndex++;
+			while (tokens[executableIndex]?.value === "-i" || tokens[executableIndex]?.value === "-u" || /^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[executableIndex]?.value ?? "")) {
+				executableIndex += tokens[executableIndex]?.value === "-u" ? 2 : 1;
+			}
+		}
+		const executable = tokens[executableIndex];
+		const argumentsAfterExecutable = tokens.slice(executableIndex + 1);
+		const literalCommit = argumentsAfterExecutable.some((token) => !token.hasExpansion && token.value === "commit");
+		const wrappedCommit = argumentsAfterExecutable.some((token) => /\bgit\b[\s\S]*\bcommit\b/.test(token.value));
+		tokens = [];
+		return (executable?.value === "git" || executable?.hasExpansion === true) && literalCommit
+			|| (["bash", "sh", "zsh", "dash", "eval", "xargs", "find"].includes(executable?.value ?? "") && wrappedCommit);
+	};
+
+	for (let index = 0; index <= command.length; index++) {
+		const character = command[index] ?? "\n";
+		if (comment) {
+			if (character !== "\n") continue;
+			comment = false;
+		}
+		if (escaped) {
+			value += character;
+			escaped = false;
+			continue;
+		}
+		if (character === "\\" && quote !== "'") {
+			escaped = true;
+			continue;
+		}
+		if (quote !== undefined) {
+			if (character === quote) quote = undefined;
+			else {
+				value += character;
+				if (quote === '"' && (character === "$" || character === "`")) hasExpansion = true;
+			}
+			continue;
+		}
+		if (character === "'" || character === '"') {
+			quote = character;
+			continue;
+		}
+		if (character === "#" && value.length === 0) {
+			comment = true;
+			continue;
+		}
+		if (character === "$" || character === "`") hasExpansion = true;
+		if (/\s/.test(character)) {
+			if (value.length > 0) tokens.push({ value, hasExpansion });
+			value = "";
+			hasExpansion = false;
+			if (character === "\n" && inspectCommand()) return true;
+			continue;
+		}
+		if (";&|".includes(character)) {
+			if (inspectCommand()) return true;
+			continue;
+		}
+		value += character;
+	}
+
+	return false;
+}
+
+// ---------------------------------------------------------------------------
+// Extension factory
+// ---------------------------------------------------------------------------
 
 export default function gitCommitLinterExtension(pi: ExtensionAPI): void {
 	/** Bounded map of toolCallId → stored warning. */
@@ -130,7 +212,7 @@ export default function gitCommitLinterExtension(pi: ExtensionAPI): void {
 
 		const { toolCallId, input } = event;
 		const rawCommand = input.command;
-		if (!/\bgit\b/.test(rawCommand) || !/\bcommit\b/.test(rawCommand)) return;
+		if (!containsCommitCandidate(rawCommand)) return;
 
 		const requestedCwd = input.cwd;
 		const home = process.env.HOME ?? homedir();
