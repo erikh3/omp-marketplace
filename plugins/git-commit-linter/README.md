@@ -19,7 +19,6 @@ It validates only Bash `tool_call` events where the model issues a literal
 
 Only a literal `commit` subcommand triggers validation. Everything else passes
 through untouched.
-[plugins/git-commit-linter/README.md#5F39]
 
 ## Supported command forms
 

@@ -79,6 +79,8 @@ interface StoredWarning {
 
 function containsCommitCandidate(command: string): boolean {
 	type CandidateToken = { readonly value: string; readonly hasExpansion: boolean };
+	const gitOptionsWithValue = ["-C", "--git-dir", "--work-tree", "--namespace", "--exec-path"];
+	const wrappers = ["bash", "sh", "zsh", "dash", "eval", "xargs", "find"];
 	let tokens: CandidateToken[] = [];
 	let value = "";
 	let hasExpansion = false;
@@ -86,7 +88,7 @@ function containsCommitCandidate(command: string): boolean {
 	let escaped = false;
 	let comment = false;
 
-	const inspectCommand = (): boolean => {
+	const finishCommand = (): boolean => {
 		if (value.length > 0) tokens.push({ value, hasExpansion });
 		value = "";
 		hasExpansion = false;
@@ -94,17 +96,21 @@ function containsCommitCandidate(command: string): boolean {
 		while (/^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[executableIndex]?.value ?? "")) executableIndex++;
 		if (tokens[executableIndex]?.value === "env") {
 			executableIndex++;
-			while (tokens[executableIndex]?.value === "-i" || tokens[executableIndex]?.value === "-u" || /^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[executableIndex]?.value ?? "")) {
+			while (tokens[executableIndex]?.value?.startsWith("-") || /^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[executableIndex]?.value ?? "")) {
 				executableIndex += tokens[executableIndex]?.value === "-u" ? 2 : 1;
 			}
 		}
 		const executable = tokens[executableIndex];
 		const argumentsAfterExecutable = tokens.slice(executableIndex + 1);
-		const literalCommit = argumentsAfterExecutable.some((token) => !token.hasExpansion && token.value === "commit");
-		const wrappedCommit = argumentsAfterExecutable.some((token, index) => /\bgit\b[\s\S]*\bcommit\b/.test(token.value) || (token.value === "git" && argumentsAfterExecutable.slice(index + 1).some((following) => following.value === "commit")));
 		tokens = [];
-		return (executable?.value === "git" || executable?.hasExpansion === true) && literalCommit
-			|| (["bash", "sh", "zsh", "dash", "eval", "xargs", "find"].includes(executable?.value ?? "") && wrappedCommit);
+		if (executable?.hasExpansion) return argumentsAfterExecutable.some((token) => !token.hasExpansion && token.value === "commit");
+		if (executable?.value === "git") {
+			let subcommandIndex = 0;
+			while (argumentsAfterExecutable[subcommandIndex]?.value.startsWith("-")) subcommandIndex += gitOptionsWithValue.includes(argumentsAfterExecutable[subcommandIndex]!.value) ? 2 : 1;
+			return argumentsAfterExecutable[subcommandIndex]?.value === "commit" || argumentsAfterExecutable[subcommandIndex]?.hasExpansion === true;
+		}
+		if (!wrappers.includes(executable?.value ?? "")) return false;
+		return argumentsAfterExecutable.some((token, index) => containsCommitCandidate(token.value) || (token.value === "git" && argumentsAfterExecutable[index + 1]?.value === "commit"));
 	};
 
 	for (let index = 0; index <= command.length; index++) {
@@ -143,11 +149,11 @@ function containsCommitCandidate(command: string): boolean {
 			if (value.length > 0) tokens.push({ value, hasExpansion });
 			value = "";
 			hasExpansion = false;
-			if (character === "\n" && inspectCommand()) return true;
+			if (character === "\n" && finishCommand()) return true;
 			continue;
 		}
 		if (";&|".includes(character)) {
-			if (inspectCommand()) return true;
+			if (finishCommand()) return true;
 			continue;
 		}
 		value += character;
@@ -155,6 +161,7 @@ function containsCommitCandidate(command: string): boolean {
 
 	return false;
 }
+
 
 // ---------------------------------------------------------------------------
 // Extension factory

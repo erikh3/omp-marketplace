@@ -37,3 +37,20 @@ process substitution unrelated,false,diff <(echo git) <(echo commit)
 quoted semicolon,false,echo 'git; commit'
 quoted pipe,false,echo "git | commit"
 comment then commit,true,# comment\ngit commit -m 'feat: add thing'
+env separator,true,env -- git commit -m 'feat: add thing'
+env long option,true,env --ignore-environment git commit -m 'feat: add thing'
+or before commit,true,false || git commit -m 'feat: add thing'
+or after commit,true,git commit -m 'feat: add thing' || true
+stderr pipe to commit,true,printf x |& git commit -F -
+crlf before commit,true,echo ready\r\ngit commit -m 'feat: add thing'
+single quoted dynamic executable,false,'$GIT' commit -m 'feat: add thing'
+escaped dynamic executable,false,\$GIT commit -m 'feat: add thing'
+single quoted wrapper,true,bash -c 'git commit -m "feat: add thing"'
+wrapper argument words,false,bash -c 'echo git commit'
+empty command segments,false,; ; echo safe ;
+empty command before commit,true,; git commit -m 'feat: add thing'
+newline in quoted text,false,echo 'git\ncommit'
+comment after separator false,false,echo safe && # git commit
+git worktree false positive,false,git worktree add commit
+git option value false positive,false,git -c alias.commit=status status
+assignment only false positive,false,GIT=git COMMIT=commit
