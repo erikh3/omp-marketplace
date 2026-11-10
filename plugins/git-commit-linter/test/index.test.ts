@@ -162,6 +162,7 @@ function makeCtx(cwd: string = "/workspace"): CtxHarness {
 // can change return values without re-evaluating modules.
 
 let mockAnalyzeResult: ShellAnalysis = { kind: "no-commit" };
+let analyzeCallCount = 0;
 let mockResolveResult: ResolvedCommit = {
 	resolution: "lint",
 	invocation: makeInvocation(),
@@ -198,7 +199,10 @@ let mockLintOverride: ((callIndex: number) => CommitLintResult) | undefined;
 let mockLintCallIndex = 0;
 
 mock.module("../src/commit-command.ts", () => ({
-	analyzeCommand: (_cmd: string, _cwd: string) => mockAnalyzeResult,
+	analyzeCommand: (_cmd: string, _cwd: string) => {
+		analyzeCallCount++;
+		return mockAnalyzeResult;
+	},
 }));
 mock.module("../src/git-resolver.ts", () => ({
 	resolveCommit: (inv: CommitInvocation) => {
@@ -346,6 +350,7 @@ beforeEach(() => {
 	mockResolveCallIndex = 0;
 	mockLintOverride = undefined;
 	mockLintCallIndex = 0;
+	analyzeCallCount = 0;
 });
 
 afterEach(() => {});
@@ -375,14 +380,20 @@ describe("non-Bash tool_call events", () => {
 });
 
 describe("no-commit bash calls", () => {
-	it("returns undefined when parser finds no git commit", async () => {
-		mockAnalyzeResult = { kind: "no-commit" };
+	it("bypasses parsing when the command cannot contain git commit", async () => {
 		const { handlers, ctx } = buildExtension();
 		const result = await handlers.tool_call!(
-			makeToolCallEvent("id-1", "echo hello"),
+			makeToolCallEvent("id-1", "find /tmp/erikh-test1-onprem -type f -exec unlink {} +"),
 			ctx,
 		);
 		expect(result).toBeUndefined();
+		expect(analyzeCallCount).toBe(0);
+	});
+
+	it("parses commands that may contain git commit", async () => {
+		const { handlers, ctx } = buildExtension();
+		await handlers.tool_call!(makeToolCallEvent("id-1", "git commit -m 'feat: add thing'"), ctx);
+		expect(analyzeCallCount).toBe(1);
 	});
 });
 
@@ -1089,7 +1100,7 @@ describe("effective cwd resolution", () => {
 		}));
 
 		const { handlers, ctx } = buildExtension("/workspace-cwd");
-		await handlers.tool_call!(makeToolCallEvent("cwd-1", "echo hello"), ctx);
+		await handlers.tool_call!(makeToolCallEvent("cwd-1", "git commit --amend --no-edit"), ctx);
 
 		expect(capturedCwd).toBe("/workspace-cwd");
 
@@ -1110,7 +1121,7 @@ describe("effective cwd resolution", () => {
 
 		const { handlers, ctx } = buildExtension("/workspace");
 		// Absolute cwd in event — should be passed as-is (resolve("/workspace", "/absolute/path") = "/absolute/path").
-		await handlers.tool_call!(makeToolCallEvent("cwd-2", "echo hello", "/absolute/path"), ctx);
+		await handlers.tool_call!(makeToolCallEvent("cwd-2", "git commit --amend --no-edit", "/absolute/path"), ctx);
 
 		expect(capturedCwd).toBe("/absolute/path");
 

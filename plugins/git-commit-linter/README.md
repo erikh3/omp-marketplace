@@ -5,7 +5,11 @@ commitlint rules before Bash executes.
 
 ## Scope
 
-This plugin intercepts only Bash `tool_call` events where the model issues a
+This plugin only parses Bash calls that contain both literal `git` and `commit`
+words. All other commands pass through without inspection, including shell forms
+the plugin does not parse.
+
+It validates only Bash `tool_call` events where the model issues a literal
 `git commit` command. It does not intercept:
 
 - `!git commit` user bang commands
@@ -15,6 +19,7 @@ This plugin intercepts only Bash `tool_call` events where the model issues a
 
 Only a literal `commit` subcommand triggers validation. Everything else passes
 through untouched.
+[plugins/git-commit-linter/README.md#5F39]
 
 ## Supported command forms
 
@@ -59,11 +64,11 @@ The Bash `cwd` field accepts `~` and `~/...`. In shell commands, unquoted
 word-initial `~` expands to the home directory; quoted and escaped tildes remain
 literal. Relative and repeated Git `-C` options apply in order, exactly once.
 
-## Changes in 0.1.1
+## Changes in 0.1.2
 
-Fixed home-directory paths causing the resolver to spawn Git with a nonexistent
-working directory. Fixed relative Git `-C` paths being applied twice, which could
-skip commit-message validation.
+Commands without both `git` and `commit` now bypass shell parsing. This prevents
+unrelated valid commands such as `find -exec unlink {} +` from being blocked by
+unsupported shell syntax.
 
 
 ## Skipped forms (no validation)

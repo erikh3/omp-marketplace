@@ -77,6 +77,7 @@ interface StoredWarning {
 // Extension factory
 // ---------------------------------------------------------------------------
 
+
 export default function gitCommitLinterExtension(pi: ExtensionAPI): void {
 	/** Bounded map of toolCallId → stored warning. */
 	const pendingWarnings = new Map<string, StoredWarning>();
@@ -129,6 +130,7 @@ export default function gitCommitLinterExtension(pi: ExtensionAPI): void {
 
 		const { toolCallId, input } = event;
 		const rawCommand = input.command;
+		if (!/\bgit\b/.test(rawCommand) || !/\bcommit\b/.test(rawCommand)) return;
 
 		const requestedCwd = input.cwd;
 		const home = process.env.HOME ?? homedir();

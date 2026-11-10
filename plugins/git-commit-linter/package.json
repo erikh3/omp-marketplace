@@ -1,6 +1,6 @@
 {
   "name": "git-commit-linter",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "OMP extension that validates model-issued git commit messages against commitlint rules before Bash executes.",
   "private": true,
   "omp": {
